@@ -215,32 +215,56 @@ h1, h2, h3, h4 {
   display: flex;
   justify-content: center;
   position: relative;
+  z-index: 2;
 }
 .hero-image-card {
-  padding: 1rem;
   position: relative;
   width: 100%;
-  max-width: 450px;
-  aspect-ratio: 4/5;
+  max-width: 550px;
+  /* Remove rigid borders to allow seamless blending */
+}
+.profile-enhanced {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+}
+.image-blend-overlay {
+  content: '';
+  position: absolute;
+  top: 0; right: 0; bottom: 0; left: 0;
+  /* Gold radiant overlay that affects the blended image */
+  background: radial-gradient(circle at center, transparent 30%, rgba(5,5,5,1) 90%);
+  z-index: 10;
+  pointer-events: none;
 }
 .hero-image {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: 12px;
+  height: auto;
+  object-fit: contain;
+  /* Darken the light background so it meshes with dark mode when blended */
+  filter: contrast(1.2) sepia(0.2) hue-rotate(-15deg);
+  /* CSS mask to feather the edges out into nothingness */
+  mask-image: radial-gradient(circle at center, black 40%, transparent 80%);
+  -webkit-mask-image: radial-gradient(circle at center, black 40%, transparent 80%);
+  transition: var(--transition-smooth);
+}
+.hero-image-card:hover .hero-image {
+  transform: scale(1.03);
+  filter: contrast(1.3) sepia(0.3) hue-rotate(-15deg);
 }
 .hero-badge {
   position: absolute;
-  bottom: -20px;
-  right: -20px;
+  bottom: 10%;
+  right: 0px;
   background: var(--bg-surface);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--text-gold);
   padding: 1rem 1.5rem;
   border-radius: 12px;
   font-family: var(--font-heading);
   color: var(--text-gold);
   font-weight: 600;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+  z-index: 20;
 }
 
 /* Sections */
