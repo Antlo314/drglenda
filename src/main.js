@@ -1,30 +1,27 @@
 import './style.css'
 
-// Add scroll event listener for navbar styling
-const navbar = document.getElementById('navbar');
-
+// Navbar background change on scroll
+const header = document.querySelector('.header');
 window.addEventListener('scroll', () => {
   if (window.scrollY > 50) {
-    navbar.classList.add('scrolled');
+    header.style.boxShadow = '0 4px 6px rgba(0,0,0,0.05)';
   } else {
-    navbar.classList.remove('scrolled');
+    header.style.boxShadow = 'none';
   }
 });
 
 // Mobile Menu Toggle
-const menuBtn = document.getElementById('mobile-menu-btn');
-const navLinks = document.getElementById('nav-links');
+const menuBtn = document.querySelector('.menu-toggle');
+const mobileNav = document.querySelector('.mobile-nav');
 
 menuBtn.addEventListener('click', () => {
-  menuBtn.classList.toggle('active');
-  navLinks.classList.toggle('active');
+  mobileNav.classList.toggle('active');
 });
 
 // Close mobile menu when a link is clicked
 document.querySelectorAll('.nav-link').forEach(link => {
   link.addEventListener('click', () => {
-    menuBtn.classList.remove('active');
-    navLinks.classList.remove('active');
+    mobileNav.classList.remove('active');
   });
 });
 
