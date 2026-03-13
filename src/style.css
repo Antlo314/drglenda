@@ -183,6 +183,35 @@ h1, h2, h3, h4 {
   color: var(--text-gold);
 }
 
+/* Mobile Menu Button (Hidden on Desktop) */
+.mobile-menu-btn {
+  display: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 1001;
+}
+.mobile-menu-btn span {
+  display: block;
+  width: 25px;
+  height: 2px;
+  background-color: var(--text-gold);
+  transition: var(--transition-smooth);
+}
+
+/* Active Hamburger Animation */
+.mobile-menu-btn.active span:nth-child(1) {
+  transform: translateY(8px) rotate(45deg);
+}
+.mobile-menu-btn.active span:nth-child(2) {
+  opacity: 0;
+}
+.mobile-menu-btn.active span:nth-child(3) {
+  transform: translateY(-8px) rotate(-45deg);
+}
+
 /* Hero Section */
 .hero {
   min-height: 100vh;
@@ -497,15 +526,33 @@ section {
     padding-top: 10rem;
     gap: 3rem;
   }
+  /* Mobile Navbar */
   .nav-container {
-    flex-direction: column;
-    gap: 1.5rem;
-    padding: 0 1rem;
+    flex-direction: row; /* Keep logo and burger side-by-side */
+    justify-content: space-between;
+    align-items: center;
+  }
+  .mobile-menu-btn {
+    display: flex;
   }
   .nav-links {
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 1rem;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 100%;
+    background: rgba(5, 5, 5, 0.95);
+    -webkit-backdrop-filter: blur(15px);
+    backdrop-filter: blur(15px);
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 0;
+    gap: 2rem;
+    border-bottom: 1px solid var(--text-gold);
+    clip-path: polygon(0 0, 100% 0, 100% 0, 0 0);
+    transition: clip-path 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+  .nav-links.active {
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
   }
   .nav-link.btn {
     margin-left: 0 !important;
