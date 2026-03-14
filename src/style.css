@@ -124,8 +124,8 @@
     top: 0;
     width: 100%;
     background-color: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
     z-index: 1000;
     border-bottom: 1px solid rgba(0,0,0,0.05);
   }
@@ -214,13 +214,18 @@
     background-color: var(--bg-light); /* Fallback */
   }
   
-  .hero-portrait {
+  .hero-video {
     width: 100%;
-    height: auto;
+    height: 100%;
+    min-height: 400px;
     display: block;
-    transform: scale(2.0); /* Mobile Crop constraint */
     object-fit: cover;
-    object-position: center top;
+    object-position: center;
+  }
+
+  .cinematic-fx {
+    box-shadow: 0 20px 50px rgba(0,0,0,0.15), 0 0 0 1px rgba(212, 175, 55, 0.2);
+    filter: contrast(1.05) saturate(1.1);
   }
   
   .hero-tag {
@@ -519,7 +524,8 @@
     .section-padding {
       padding: 8rem 2rem;
     }
-    .hero-portrait {
-       transform: scale(2.0) translateY(-10%); /* Fine-tune desktop portrait focus */
+    .hero-video {
+       transform: none; /* Video stands alone correctly */
+       height: 600px;
     }
   }
