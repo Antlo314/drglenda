@@ -3,128 +3,587 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Empowering individuals to achieve greatness through motivation and inspiration. Dr. Glenda S. Williams - Motivational Speaker." />
-    <title>Dr. Glenda S. Williams | Motivational Speaker</title>
-    <!-- Modern Clean Typography: Playfair for Authority, Inter for Readability -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+    <meta name="theme-color" content="#6E1423" />
+    <meta name="description" content="Unlimited Mind of Freedom (UMOF) — a 501(c)(3) nonprofit empowering communities through education and entrepreneurship. Enroll in The Entrepreneur's Journey: Funding Masterclass — a 12-week funding readiness program. Sign-up deadline July 2nd." />
+    <meta name="keywords" content="UMOF, Unlimited Mind of Freedom, entrepreneurship, funding masterclass, business funding, financial literacy, nonprofit, Dr. Glenda S. Williams" />
+    <title>Unlimited Mind of Freedom | Funding Masterclass — Enroll by July 2nd</title>
+
+    <link rel="icon" type="image/png" href="/assets/umof-logo.png" />
+
+    <!-- Open Graph -->
+    <meta property="og:site_name" content="Unlimited Mind of Freedom" />
+    <meta property="og:title" content="The Entrepreneur's Journey: Funding Masterclass — Enroll by July 2nd" />
+    <meta property="og:description" content="A 12-week financial literacy & business funding readiness program. Learn. Prepare. Grow. Fund." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://www.umof.org" />
+    <meta property="og:image" content="/assets/umof-logo.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500&display=swap" rel="stylesheet" />
+
     <script type="module" src="/src/main.js"></script>
+
+    <!-- Structured data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "EducationalOrganization",
+      "name": "Unlimited Mind of Freedom",
+      "alternateName": "UMOF",
+      "url": "https://www.umof.org",
+      "logo": "https://www.umof.org/assets/umof-logo.png",
+      "foundingDate": "2003",
+      "founder": { "@type": "Person", "name": "Dr. Glenda S. Williams" },
+      "address": { "@type": "PostalAddress", "addressLocality": "Lithonia", "addressRegion": "GA", "addressCountry": "US" },
+      "description": "A 501(c)(3) nonprofit dedicated to empowering individuals and strengthening communities through education, entrepreneurship, and access to essential resources."
+    }
+    </script>
   </head>
+
   <body>
-    <!-- Mobile Header -->
+    <!-- Skip link for accessibility -->
+    <a href="#masterclass" class="skip-link">Skip to the Masterclass</a>
+
+    <!-- Announcement / Deadline Bar -->
+    <div class="announcement-bar" id="announcementBar">
+      <div class="container announcement-inner">
+        <p class="announcement-text">
+          <span class="pulse-dot" aria-hidden="true"></span>
+          <strong>Enrollment open</strong> — Funding Masterclass sign-up deadline is
+          <strong class="hl">July 2nd</strong>. Seats are limited.
+        </p>
+        <a href="https://pci.jotform.com/form/261608272516053" target="_blank" rel="noopener" class="announcement-cta">Register now &rarr;</a>
+      </div>
+    </div>
+
+    <!-- Header -->
     <header class="header" id="header">
-      <div class="header-container">
-        <a href="#" class="logo">Dr. Glenda S. Williams</a>
-        <button class="menu-toggle" aria-label="Toggle Menu">
+      <div class="container header-inner">
+        <a href="#home" class="brand" aria-label="Unlimited Mind of Freedom home">
+          <img src="/assets/umof-logo.png" alt="Unlimited Mind of Freedom logo" class="brand-logo" width="48" height="48" />
+          <span class="brand-text">
+            <span class="brand-name">UMOF</span>
+            <span class="brand-sub">Unlimited Mind of Freedom</span>
+          </span>
+        </a>
+
+        <nav class="nav-desktop" aria-label="Primary">
+          <a href="#masterclass" class="nav-link">Masterclass</a>
+          <a href="#about" class="nav-link">About</a>
+          <a href="#impact" class="nav-link">Impact</a>
+          <a href="#programs" class="nav-link">Programs</a>
+          <a href="#contact" class="nav-link">Contact</a>
+          <a href="https://www.paypal.com/donate/?hosted_button_id=5NWVEAB7XHSP2" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Donate</a>
+          <a href="https://pci.jotform.com/form/261608272516053" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Enroll</a>
+        </nav>
+
+        <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-expanded="false" aria-controls="mobileNav">
           <span></span><span></span><span></span>
         </button>
       </div>
-      <!-- Mobile Dropdown Nav -->
-      <nav class="mobile-nav">
-        <ul class="nav-list">
-          <li><a href="#about" class="nav-link">About</a></li>
-          <li><a href="#services" class="nav-link">Services</a></li>
-          <li><a href="#store" class="nav-link">Store</a></li>
-          <li><a href="#contact" class="btn btn-primary nav-cta">Book Now</a></li>
-        </ul>
+
+      <!-- Mobile Nav -->
+      <nav class="mobile-nav" id="mobileNav" aria-label="Mobile">
+        <a href="#masterclass" class="nav-link">Masterclass</a>
+        <a href="#about" class="nav-link">About</a>
+        <a href="#impact" class="nav-link">Impact</a>
+        <a href="#programs" class="nav-link">Programs</a>
+        <a href="#contact" class="nav-link">Contact</a>
+        <a href="https://www.paypal.com/donate/?hosted_button_id=5NWVEAB7XHSP2" target="_blank" rel="noopener" class="btn btn-ghost btn-full">Donate</a>
+        <a href="https://pci.jotform.com/form/261608272516053" target="_blank" rel="noopener" class="btn btn-primary btn-full">Enroll Now</a>
       </nav>
     </header>
 
     <main>
-      <!-- Hero Section (Mobile Stacking) -->
-      <section class="hero section-padding" id="home">
-        <div class="hero-text-container">
-          <h1 class="hero-headline">Unleash Your <br/><span class="accent-text">Potential</span></h1>
-          <p class="hero-subheadline">Empowering individuals to achieve greatness through discipline, motivation, and strategic inspiration.</p>
-          <div class="hero-buttons">
-            <a href="#store" class="btn btn-primary btn-full">Pre-Order the E-Book</a>
-            <a href="#services" class="btn btn-outline btn-full">Explore Services</a>
+      <!-- HERO -->
+      <section class="hero" id="home">
+        <div class="hero-bg" aria-hidden="true"></div>
+        <div class="container hero-inner">
+          <div class="hero-content">
+            <span class="eyebrow">Entrepreneurship &amp; Business Development Institute</span>
+            <h1 class="hero-title">
+              The Entrepreneur's Journey:<br />
+              <span class="accent">Funding Masterclass</span>
+            </h1>
+            <p class="hero-lede">
+              A 12-week financial literacy and business funding readiness program — transform your
+              business into a funding-ready enterprise. <strong>Learn. Prepare. Grow. Fund.</strong>
+            </p>
+
+            <div class="hero-meta">
+              <div class="meta-pill"><span class="meta-icon">&#128197;</span> Class begins July 6, 2026</div>
+              <div class="meta-pill meta-pill--alert"><span class="meta-icon">&#9203;</span> Sign-up deadline: <strong>July 2nd</strong></div>
+              <div class="meta-pill"><span class="meta-icon">&#128187;</span> Online, instructor-led</div>
+            </div>
+
+            <div class="hero-actions">
+              <a href="https://pci.jotform.com/form/261608272516053" target="_blank" rel="noopener" class="btn btn-primary btn-lg">Register Today</a>
+              <a href="#masterclass" class="btn btn-outline btn-lg">Explore the Program</a>
+            </div>
+
+            <!-- Countdown -->
+            <div class="countdown" id="countdown" aria-label="Time remaining until the sign-up deadline">
+              <span class="countdown-label">Sign-up closes in</span>
+              <div class="countdown-units">
+                <div class="cd-unit"><span class="cd-num" data-cd="days">--</span><span class="cd-lab">Days</span></div>
+                <div class="cd-unit"><span class="cd-num" data-cd="hours">--</span><span class="cd-lab">Hrs</span></div>
+                <div class="cd-unit"><span class="cd-num" data-cd="minutes">--</span><span class="cd-lab">Min</span></div>
+                <div class="cd-unit"><span class="cd-num" data-cd="seconds">--</span><span class="cd-lab">Sec</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="hero-card">
+            <div class="hero-card-media">
+              <img src="/assets/edu-1.png" alt="Entrepreneur working on funding readiness" loading="eager" width="500" height="600" />
+            </div>
+            <div class="hero-card-body">
+              <p class="quote">&ldquo;Preparation Creates Opportunity. Opportunity Creates Funding. Funding Creates Growth. Growth Creates Legacy.&rdquo;</p>
+              <p class="quote-attr">— Dr. Glenda S. Williams</p>
+            </div>
           </div>
         </div>
       </section>
 
-      <!-- About Section -->
-      <section class="about section-padding bg-light" id="about">
-        <div class="section-header center-text">
-          <h2 class="section-title">A Trailblazer for <br/>Women in Business</h2>
+      <!-- Trust strip -->
+      <section class="trust-strip">
+        <div class="container trust-grid">
+          <div class="trust-item"><span class="trust-num">12</span><span class="trust-lab">Week Program</span></div>
+          <div class="trust-item"><span class="trust-num">$150K+</span><span class="trust-lab">Funding Access*</span></div>
+          <div class="trust-item"><span class="trust-num">90 min</span><span class="trust-lab">Live Sessions</span></div>
+          <div class="trust-item"><span class="trust-num">501(c)(3)</span><span class="trust-lab">Nonprofit Program</span></div>
         </div>
-        
-        <div class="about-content">
-          <div class="text-card fade-up">
-            <p>Dr. Glenda Swinton Williams is a highly disciplined professional specializing in leadership development and business strategy. She works tirelessly to provide essential resources aimed at educating entrepreneurs and supporting business growth.</p>
-            <p class="mt-4">Founder of the Unlimited Mind of Freedom Nonprofit Organization, the Elouise S. Moody Foundation, and a contributing Liaison Officer for MEG Enterprises. She is a sought-after project manager, solutions provider, philanthropist, and consultant.</p>
+      </section>
+
+      <!-- ============================================================= -->
+      <!-- CENTERPIECE: THE MASTERCLASS (umof.org/education)              -->
+      <!-- ============================================================= -->
+      <section class="masterclass section" id="masterclass">
+        <div class="container">
+          <div class="section-head center">
+            <span class="eyebrow">The Centerpiece</span>
+            <h2 class="section-title">Welcome to the UMOF Entrepreneurship &amp; Business Development Institute</h2>
+            <p class="section-intro">
+              A Community Economic Empowerment Program dedicated to educating, equipping, and empowering
+              aspiring and existing entrepreneurs through workforce development, financial literacy,
+              business education, and funding readiness training — promoting self-sufficiency, wealth
+              creation, and community development.
+            </p>
           </div>
-          
-          <div class="stats-container mt-8 fade-up text-center">
-            <div class="stat-box">
-              <span class="stat-number">10+</span>
-              <span class="stat-label">Prestigious Awards</span>
+
+          <!-- Mission row -->
+          <div class="mission-row">
+            <div class="mission-text fade-up">
+              <h3>Transform ideas into successful businesses</h3>
+              <p>
+                We help individuals turn ideas into successful businesses by providing practical
+                education, real-world business strategies, and access to resources that support
+                long-term entrepreneurial success. Entrepreneurship is a powerful pathway to economic
+                independence, generational wealth, job creation, and stronger communities.
+              </p>
+              <p>
+                Whether you are launching your first business, seeking capital to grow, improving your
+                financial literacy, or preparing to pursue grants, contracts, loans, or investor
+                funding — our programs deliver the knowledge, tools, and confidence to achieve your goals.
+              </p>
+              <ul class="check-list">
+                <li>Build financially sound and sustainable businesses</li>
+                <li>Increase business knowledge and financial literacy</li>
+                <li>Strengthen business credit and funding readiness</li>
+                <li>Access capital and growth opportunities</li>
+                <li>Create jobs and economic impact in your community</li>
+                <li>Develop leadership and business management skills</li>
+                <li>Build wealth through business ownership</li>
+              </ul>
             </div>
-            <div class="stat-box">
-              <span class="stat-number">2024</span>
-              <span class="stat-label">President's Lifetime Achievement</span>
+            <div class="mission-media fade-up">
+              <img src="/assets/edu-2.png" alt="Business education session" loading="lazy" />
+              <div class="media-badge">
+                <span class="media-badge-num">12 Weeks</span>
+                <span class="media-badge-lab">Instructor-led</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Deadline callout -->
+          <div class="deadline-banner fade-up" id="enroll">
+            <div class="deadline-content">
+              <span class="deadline-kicker">Don't miss your seat</span>
+              <h3 class="deadline-title">Sign-up deadline is <span class="deadline-date">July 2nd</span></h3>
+              <p>Seats are limited and filled first-come, first-served. The next cohort begins July 6, 2026.
+                Once capacity is reached, applicants are placed on a waiting list. Early registration is strongly encouraged.</p>
+            </div>
+            <a href="https://pci.jotform.com/form/261608272516053" target="_blank" rel="noopener" class="btn btn-light btn-lg">Secure My Seat</a>
+          </div>
+
+          <!-- What you'll learn -->
+          <div class="section-head center sub-head">
+            <h3 class="section-subtitle">What You Will Learn</h3>
+            <p class="muted">A step-by-step roadmap across five core pillars.</p>
+          </div>
+
+          <div class="pillar-grid">
+            <article class="pillar-card fade-up">
+              <span class="pillar-num">01</span>
+              <h4>Build a Strong Foundation</h4>
+              <ul>
+                <li>Choose the right business structure</li>
+                <li>Establish business credibility</li>
+                <li>Create a professional presence</li>
+                <li>Develop a strategic business plan</li>
+              </ul>
+            </article>
+            <article class="pillar-card fade-up">
+              <span class="pillar-num">02</span>
+              <h4>Master Financial Literacy</h4>
+              <ul>
+                <li>Understand financial statements</li>
+                <li>Build budgets &amp; cash-flow projections</li>
+                <li>Track profitability and expenses</li>
+                <li>Improve financial decision-making</li>
+              </ul>
+            </article>
+            <article class="pillar-card fade-up">
+              <span class="pillar-num">03</span>
+              <h4>Become Funding Ready</h4>
+              <ul>
+                <li>Build and strengthen business credit</li>
+                <li>Prepare lender-ready documentation</li>
+                <li>Develop a funding readiness portfolio</li>
+                <li>Know what lenders &amp; investors expect</li>
+              </ul>
+            </article>
+            <article class="pillar-card fade-up">
+              <span class="pillar-num">04</span>
+              <h4>Access Capital Opportunities</h4>
+              <ul>
+                <li>Business loans &amp; lines of credit</li>
+                <li>Grants &amp; alternative funding</li>
+                <li>Understand investor readiness</li>
+                <li>Position for growth capital</li>
+              </ul>
+            </article>
+            <article class="pillar-card fade-up">
+              <span class="pillar-num">05</span>
+              <h4>Scale &amp; Grow</h4>
+              <ul>
+                <li>Build systems for sustainable growth</li>
+                <li>Improve operational efficiency</li>
+                <li>Strengthen leadership skills</li>
+                <li>Create measurable business goals</li>
+              </ul>
+            </article>
+            <article class="pillar-card pillar-card--cta fade-up">
+              <h4>Ready to begin?</h4>
+              <p>Reserve your seat before <strong>July 2nd</strong> and start your funding journey.</p>
+              <a href="https://pci.jotform.com/form/261608272516053" target="_blank" rel="noopener" class="btn btn-primary btn-full">Register Now</a>
+            </article>
+          </div>
+
+          <!-- Program format + certificate -->
+          <div class="format-grid">
+            <div class="format-card fade-up">
+              <h3>Program Format</h3>
+              <div class="spec-row"><span>Duration</span><strong>12 Weeks</strong></div>
+              <div class="spec-row"><span>Delivery</span><strong>Online, Instructor-Led</strong></div>
+              <div class="spec-row"><span>Schedule</span><strong>One 90-min class / week</strong></div>
+              <div class="spec-row"><span>Next cohort</span><strong>July 6, 2026</strong></div>
+              <ul class="check-list compact">
+                <li>Weekly training modules &amp; interactive discussions</li>
+                <li>Practical assignments &amp; funding readiness assessments</li>
+                <li>Financial literacy exercises &amp; business resources</li>
+                <li>Capstone funding presentation</li>
+              </ul>
+            </div>
+
+            <div class="format-card cert-card fade-up">
+              <span class="cert-ribbon">Certificate</span>
+              <h3>Certificate in Financial Readiness &amp; Business Funding Preparedness</h3>
+              <p class="muted">Upon successful completion, students earn a certificate demonstrating competency in:</p>
+              <div class="tag-cloud">
+                <span class="tag">Financial Literacy</span>
+                <span class="tag">Business Development</span>
+                <span class="tag">Business Credit</span>
+                <span class="tag">Funding Readiness</span>
+                <span class="tag">Financial Management</span>
+                <span class="tag">Capital Acquisition</span>
+                <span class="tag">Growth Strategies</span>
+              </div>
+              <p class="fine">Requires completion of coursework, assignments, quizzes, discussions, and the final capstone presentation.</p>
+            </div>
+          </div>
+
+          <!-- Funding opportunity -->
+          <div class="funding-feature fade-up">
+            <div class="funding-text">
+              <span class="eyebrow eyebrow--light">Exclusive Graduate Benefit</span>
+              <h3>Access to a leading small-business funding platform</h3>
+              <p>
+                Graduates are introduced to one of the industry's leading funding platforms. For more than
+                a decade, it has helped thousands of business owners access working capital and financing
+                solutions designed to support growth and expansion.
+              </p>
+              <div class="funding-benefits">
+                <div class="fb"><span>&#10003;</span> Funding opportunities up to $150,000 or more</div>
+                <div class="fb"><span>&#10003;</span> Fast application &amp; review process</div>
+                <div class="fb"><span>&#10003;</span> Multiple funding providers, one platform</div>
+                <div class="fb"><span>&#10003;</span> Competitive, streamlined funding search</div>
+                <div class="fb"><span>&#10003;</span> 10+ years serving small businesses nationwide</div>
+                <div class="fb"><span>&#10003;</span> Working capital solutions for growth</div>
+              </div>
+            </div>
+            <div class="funding-media">
+              <img src="/assets/edu-3.png" alt="Reviewing business funding options" loading="lazy" />
+            </div>
+          </div>
+
+          <!-- Tuition -->
+          <div class="section-head center sub-head">
+            <h3 class="section-subtitle">Program Investment</h3>
+            <p class="muted">Total tuition <strong>$10,000</strong> — three flexible payment options.</p>
+          </div>
+
+          <div class="pricing-grid">
+            <article class="price-card fade-up">
+              <h4>Pay in Full</h4>
+              <p class="price">$10,000</p>
+              <p class="price-sub">One-time payment</p>
+              <ul class="check-list compact">
+                <li>Immediate enrollment</li>
+                <li>No financing required</li>
+              </ul>
+              <a href="https://pci.jotform.com/form/261608272516053" target="_blank" rel="noopener" class="btn btn-outline btn-full">Choose Plan</a>
+            </article>
+
+            <article class="price-card price-card--featured fade-up">
+              <span class="price-flag">Popular</span>
+              <h4>50% Down + Financing</h4>
+              <p class="price">$5,000 <span>down</span></p>
+              <p class="price-sub">$5,000 financed balance</p>
+              <ul class="check-list compact">
+                <li>Balance financed via approved lender</li>
+                <li>Enrollment on down payment + approval</li>
+                <li>Financing terms set by lender</li>
+              </ul>
+              <a href="https://pci.jotform.com/form/261608272516053" target="_blank" rel="noopener" class="btn btn-primary btn-full">Choose Plan</a>
+            </article>
+
+            <article class="price-card fade-up">
+              <h4>Enrollment Deposit + Financing</h4>
+              <p class="price">$300 <span>deposit</span></p>
+              <p class="price-sub">$9,700 financed balance</p>
+              <ul class="check-list compact">
+                <li>Lowest upfront cost to start</li>
+                <li>Enrollment contingent on approval</li>
+                <li>Financing terms set by lender</li>
+              </ul>
+              <a href="https://pci.jotform.com/form/261608272516053" target="_blank" rel="noopener" class="btn btn-outline btn-full">Choose Plan</a>
+            </article>
+          </div>
+          <p class="fine center">Qualified applicants may apply for third-party financing to cover eligible tuition balances. Financing terms are determined by the lender.</p>
+
+          <!-- Who should enroll -->
+          <div class="enroll-who fade-up">
+            <h3>Who Should Enroll?</h3>
+            <div class="chip-grid">
+              <span class="chip">Start-Up Owners</span>
+              <span class="chip">Small Business Owners</span>
+              <span class="chip">Entrepreneurs</span>
+              <span class="chip">Independent Contractors</span>
+              <span class="chip">Consultants</span>
+              <span class="chip">Nonprofit Leaders</span>
+              <span class="chip">Service-Based Businesses</span>
+              <span class="chip">Retail Owners</span>
+              <span class="chip">Minority-Owned</span>
+              <span class="chip">Women-Owned</span>
+              <span class="chip">Veteran-Owned</span>
+              <span class="chip">Funding Seekers</span>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- Store CTA Section -->
-      <section class="store section-padding text-center pattern-bg" id="store">
-        <div class="glass-promo fade-up">
-          <h2 class="promo-title">Ready to transform your life?</h2>
-          <p class="promo-text mb-6">Pre-order the new E-Book today and get 10% off your first purchase.</p>
-          <a href="#" class="btn btn-primary btn-large">Pre-Order Now</a>
+      <!-- ABOUT UMOF -->
+      <section class="about section" id="about">
+        <div class="container about-grid">
+          <div class="about-media fade-up">
+            <img src="/assets/umof-header.jpg" alt="UMOF community giveaway event" loading="lazy" />
+          </div>
+          <div class="about-text fade-up">
+            <span class="eyebrow">About the Organization</span>
+            <h2 class="section-title">A nonprofit empowering minds &amp; communities</h2>
+            <p>
+              Unlimited Mind of Freedom, Inc. (UMOF) is a 501(c)(3) nonprofit organization founded in 2003
+              and officially incorporated in 2019 by <strong>Dr. Glenda S. Williams</strong>. Headquartered
+              in Lithonia, Georgia, UMOF is dedicated to empowering individuals and strengthening communities
+              through education, entrepreneurship, and access to essential resources.
+            </p>
+            <p>
+              Through innovative programs, outreach initiatives, and community partnerships, UMOF addresses
+              social, hunger, educational, and economic challenges — inspiring individuals to achieve
+              long-term stability and success.
+            </p>
+            <div class="about-stats">
+              <div class="about-stat"><span class="as-num">2003</span><span class="as-lab">Founded</span></div>
+              <div class="about-stat"><span class="as-num">3</span><span class="as-lab">States Served</span></div>
+              <div class="about-stat"><span class="as-num">501(c)(3)</span><span class="as-lab">Nonprofit</span></div>
+            </div>
+            <div class="service-areas">
+              <strong>Service areas:</strong>
+              Georgia (Conyers, Covington, Lithonia, Stone Mountain) · South Carolina (Loris, Green Sea,
+              Conway, Longs, Red Bluff, Little River, North Myrtle Beach, Atlantic Beach, Mullins, Marion) ·
+              North Carolina (Tabor City, Clarendon, Fair Bluff, Iron Hill, Whiteville, Chadbourn)
+            </div>
+          </div>
         </div>
       </section>
 
-      <!-- Contact Section -->
-      <section class="contact section-padding" id="contact">
-        <div class="section-header text-center">
-          <h2 class="section-title">Let's Connect</h2>
-          <p class="section-subtitle mt-2">Inquire about speaking events, consulting, or general questions.</p>
+      <!-- IMPACT / PAST EVENTS -->
+      <section class="impact section" id="impact">
+        <div class="container">
+          <div class="section-head center">
+            <span class="eyebrow">Community Impact</span>
+            <h2 class="section-title">Giving today, impacting tomorrow</h2>
+            <p class="section-intro">Every act of giving matters. Sow a seed into the future by supporting UMOF's outreach and programs.</p>
+          </div>
+
+          <div class="impact-grid">
+            <article class="impact-card fade-up">
+              <div class="impact-media"><img src="/assets/event-photo.jpeg" alt="Christmas Giveaway 2024" loading="lazy" /></div>
+              <div class="impact-body">
+                <span class="impact-tag">2024</span>
+                <h3>Christmas Giveaway</h3>
+                <p>Bikes, toys, and gifts brought joy to families across our communities.</p>
+              </div>
+            </article>
+            <article class="impact-card fade-up">
+              <div class="impact-media"><img src="/assets/past-event-1.jpg" alt="Back to School Giveaway 2024" loading="lazy" /></div>
+              <div class="impact-body">
+                <span class="impact-tag">2024</span>
+                <h3>Back to School Giveaway</h3>
+                <p>Backpacks and supplies to set students up for a successful school year.</p>
+              </div>
+            </article>
+            <article class="impact-card fade-up">
+              <div class="impact-media"><img src="/assets/past-event-2.jpg" alt="Turkey Giveaway 2021" loading="lazy" /></div>
+              <div class="impact-body">
+                <span class="impact-tag">2021</span>
+                <h3>Turkey Giveaway</h3>
+                <p>Holiday meals shared with neighbors facing food insecurity.</p>
+              </div>
+            </article>
+          </div>
+
+          <div class="donate-cta fade-up">
+            <div>
+              <h3>Help us create opportunities today</h3>
+              <p>Every act of giving matters. Take action — support UMOF now.</p>
+            </div>
+            <a href="https://www.paypal.com/donate/?hosted_button_id=5NWVEAB7XHSP2" target="_blank" rel="noopener" class="btn btn-primary btn-lg">Donate Now</a>
+          </div>
         </div>
-        
-        <div class="contact-layout">
-          <form class="booking-form fade-up">
-            <div class="input-group">
-              <label for="name">Full Name</label>
-              <input type="text" id="name" placeholder="E.g. Jane Doe" required />
+      </section>
+
+      <!-- OTHER PROGRAMS -->
+      <section class="programs section" id="programs">
+        <div class="container">
+          <div class="section-head center">
+            <span class="eyebrow">Beyond the Masterclass</span>
+            <h2 class="section-title">Other Programs &amp; Partnerships</h2>
+          </div>
+          <div class="programs-grid">
+            <article class="program-card fade-up">
+              <img src="/assets/edu-4.webp" alt="Workforce development program" loading="lazy" />
+              <div class="program-body">
+                <h3>Workforce Development</h3>
+                <p>Training and resources that build skills, confidence, and economic self-sufficiency.</p>
+              </div>
+            </article>
+            <article class="program-card fade-up">
+              <img src="/assets/umof-thumbnail.jpg" alt="Community outreach initiatives" loading="lazy" />
+              <div class="program-body">
+                <h3>Community Outreach</h3>
+                <p>Initiatives addressing hunger, education, and economic challenges across three states.</p>
+              </div>
+            </article>
+            <article class="program-card fade-up">
+              <img src="/assets/meg-ent.jpg" alt="Partnership programs" loading="lazy" />
+              <div class="program-body">
+                <h3>Strategic Partnerships</h3>
+                <p>Collaborations that expand access to capital, resources, and growth opportunities.</p>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- FINAL CTA -->
+      <section class="final-cta">
+        <div class="container final-cta-inner">
+          <span class="eyebrow eyebrow--light">Learn. Prepare. Grow. Fund.</span>
+          <h2>When preparation meets opportunity, businesses become fundable.</h2>
+          <p>Class starts July 6, 2026 — limited seating available. <strong>Sign-up deadline: July 2nd.</strong></p>
+          <a href="https://pci.jotform.com/form/261608272516053" target="_blank" rel="noopener" class="btn btn-light btn-lg">Register Today</a>
+        </div>
+      </section>
+
+      <!-- CONTACT / NEWSLETTER -->
+      <section class="contact section" id="contact">
+        <div class="container contact-grid">
+          <div class="contact-text fade-up">
+            <span class="eyebrow">Stay in the loop</span>
+            <h2 class="section-title">Get news, events &amp; enrollment updates</h2>
+            <p>Sign up with your email address to receive news and updates from Unlimited Mind of Freedom.</p>
+            <p class="contact-hq"><strong>Headquarters:</strong> Lithonia, Georgia</p>
+          </div>
+          <form class="newsletter-form fade-up" id="newsletterForm" novalidate>
+            <label for="email" class="field-label">Email Address</label>
+            <div class="field-row">
+              <input type="email" id="email" name="email" placeholder="you@example.com" required autocomplete="email" />
+              <button type="submit" class="btn btn-primary">Sign Up</button>
             </div>
-            <div class="input-group">
-              <label for="email">Email Address</label>
-              <input type="email" id="email" placeholder="jane@example.com" required />
-            </div>
-            <div class="input-group">
-              <label for="message">Your Message</label>
-              <textarea id="message" rows="4" placeholder="How can I help you achieve greatness?" required></textarea>
-            </div>
-            <button type="submit" class="btn btn-primary btn-full mt-4">Send Message</button>
+            <p class="form-msg" id="formMsg" role="status" aria-live="polite"></p>
           </form>
-          
-          <div class="contact-info fade-up mt-8 text-center">
-            <h3>Business Hours</h3>
-            <p>Monday - Friday</p>
-            <p class="accent-text font-bold">09:00 AM – 05:00 PM</p>
-          </div>
         </div>
       </section>
     </main>
 
-    <!-- Footer -->
+    <!-- FOOTER -->
     <footer class="footer">
-      <div class="footer-content text-center">
-        <h3 class="footer-logo">Dr. Glenda S. Williams</h3>
-        <p class="footer-tagline">Making a meaningful difference through light and hope.</p>
-        
-        <div class="footer-nav mt-6">
-          <a href="#about">About</a>
-          <a href="#services">Services</a>
-          <a href="#store">Store</a>
+      <div class="container footer-inner">
+        <div class="footer-brand">
+          <img src="/assets/umof-logo.png" alt="UMOF logo" class="footer-logo" width="56" height="56" />
+          <p class="footer-tagline">Unlimited Mind of Freedom — empowering individuals and strengthening communities through education, entrepreneurship, and access to essential resources.</p>
         </div>
-        
-        <div class="footer-bottom mt-8">
-          <p>&copy; 2026 Dr. Glenda S. Williams. All Rights Reserved.</p>
+        <div class="footer-cols">
+          <div class="footer-col">
+            <h4>Explore</h4>
+            <a href="#masterclass">Funding Masterclass</a>
+            <a href="#about">About UMOF</a>
+            <a href="#impact">Community Impact</a>
+            <a href="#programs">Programs</a>
+          </div>
+          <div class="footer-col">
+            <h4>Take Action</h4>
+            <a href="https://pci.jotform.com/form/261608272516053" target="_blank" rel="noopener">Enroll Now</a>
+            <a href="https://www.paypal.com/donate/?hosted_button_id=5NWVEAB7XHSP2" target="_blank" rel="noopener">Donate</a>
+            <a href="#contact">Newsletter</a>
+          </div>
+          <div class="footer-col">
+            <h4>Organization</h4>
+            <span>501(c)(3) Nonprofit</span>
+            <span>Founded 2003</span>
+            <span>Lithonia, Georgia</span>
+          </div>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <div class="container footer-bottom-inner">
+          <p>&copy; <span id="year">2026</span> Unlimited Mind of Freedom, Inc. All Rights Reserved.</p>
+          <p class="fine">Funding amounts, approvals, rates, terms, and eligibility are determined solely by participating funding providers based on each business's qualifications.</p>
         </div>
       </div>
     </footer>
