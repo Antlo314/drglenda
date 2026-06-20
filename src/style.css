@@ -469,16 +469,18 @@ strong {
   display: none;
   flex-direction: column;
   gap: 4px;
-  padding: 12px 24px 24px;
+  padding: 0 24px;
   background: var(--cream);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid transparent;
   max-height: 0;
   overflow: hidden;
-  transition: max-height 0.35s ease, padding 0.35s ease;
+  transition: max-height 0.35s ease, padding 0.35s ease, border-color 0.35s ease;
 }
 
 .mobile-nav.active {
   max-height: 520px;
+  padding: 12px 24px 24px;
+  border-bottom-color: var(--line);
 }
 
 .mobile-nav .nav-link {
