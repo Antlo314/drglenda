@@ -1441,6 +1441,25 @@ strong {
   object-fit: cover;
 }
 
+/* Logo card (e.g. Boss Court TV) — contain, don't crop */
+.program-logo {
+  aspect-ratio: 4 / 2.8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  padding: 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.program-logo img {
+  width: auto;
+  max-width: 82%;
+  max-height: 100%;
+  object-fit: contain;
+  aspect-ratio: auto;
+}
+
 .program-body {
   padding: 24px;
 }
