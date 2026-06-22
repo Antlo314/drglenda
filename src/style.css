@@ -1661,6 +1661,22 @@ strong {
   color: rgba(255, 255, 255, 0.45);
 }
 
+.footer-credit {
+  margin-top: 6px;
+}
+
+.footer-credit a {
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.footer-credit a:hover {
+  color: #fff;
+  border-color: #fff;
+}
+
 /* ----- Scroll reveal ----- */
 .fade-up {
   opacity: 0;
