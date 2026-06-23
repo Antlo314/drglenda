@@ -1159,6 +1159,34 @@ strong {
   align-items: stretch;
 }
 
+.pricing-grid--4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.course-line {
+  margin-bottom: 6px;
+  font-size: 1.02rem;
+}
+
+.course-line strong {
+  color: var(--maroon);
+}
+
+.price-tag {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--cream);
+  border: 1px solid var(--line);
+  padding: 3px 10px;
+  border-radius: 999px;
+  margin-bottom: 12px;
+}
+
 .price-card {
   background: #fff;
   border: 1px solid var(--line);
@@ -1221,6 +1249,34 @@ strong {
   padding: 6px 18px;
   border-radius: 999px;
   box-shadow: var(--shadow-sm);
+}
+
+/* Business Growth Plan add-on */
+.growth-plan {
+  margin-top: 40px;
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: clamp(24px, 4vw, 48px);
+  align-items: center;
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: clamp(28px, 4vw, 44px);
+}
+
+.growth-plan-info h4 {
+  font-size: 1.35rem;
+  margin-bottom: 10px;
+}
+
+.growth-plan-list {
+  margin-bottom: 0;
+  columns: 2;
+  column-gap: 32px;
+}
+
+.growth-plan-list li {
+  break-inside: avoid;
 }
 
 /* Who should enroll */
@@ -1718,6 +1774,17 @@ strong {
   .format-grid {
     grid-template-columns: 1fr;
   }
+  .growth-plan {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+  .growth-plan-list {
+    text-align: left;
+  }
+  .growth-plan-info .price-tag {
+    margin-left: auto;
+    margin-right: auto;
+  }
   .price-card--featured {
     transform: none;
   }
@@ -1863,6 +1930,9 @@ strong {
   .newsletter-form,
   .format-card {
     padding: 26px 22px;
+  }
+  .growth-plan-list {
+    columns: 1;
   }
 }
 
