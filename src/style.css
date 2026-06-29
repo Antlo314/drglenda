@@ -1603,6 +1603,11 @@ strong {
   gap: 10px;
 }
 
+.lead-name {
+  width: 100%;
+  margin-bottom: 18px;
+}
+
 .newsletter-form input {
   flex: 1;
   font-family: var(--font-body);

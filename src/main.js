@@ -1,4 +1,6 @@
 import './style.css';
+import { supabase } from './portal/supabase.js';
+import { USE_SUPABASE } from './portal/config.js';
 
 /* -------------------------------------------------------------------------
    Sticky header shadow on scroll
@@ -159,9 +161,10 @@ const form = document.getElementById('newsletterForm');
 const formMsg = document.getElementById('formMsg');
 
 if (form) {
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = form.email.value.trim();
+    const name = (form.name?.value || '').trim();
     const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
     if (!valid) {
@@ -169,6 +172,19 @@ if (form) {
       formMsg.className = 'form-msg err';
       form.email.focus();
       return;
+    }
+
+    // When connected to Supabase, drop the signup straight into the CRM as a lead.
+    if (USE_SUPABASE && supabase) {
+      const { error } = await supabase.from('leads').insert({
+        name: name || email,
+        email,
+        source: 'Website signup',
+        interest: 'Newsletter',
+        status: 'new',
+      });
+      // Never expose backend errors on the public site; just log them.
+      if (error) console.error('[umof] lead capture failed:', error);
     }
 
     formMsg.textContent = 'Thank you! You’re on the list — watch your inbox for updates.';
