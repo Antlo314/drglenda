@@ -8,7 +8,7 @@ import {
   login, logout, currentUser, initAuth,
   signUp, requestPasswordReset, updatePassword, updateDisplayName, onAuthEvent,
 } from './auth.js';
-import { downloadCSV, exportPDF } from './export.js';
+import { downloadCSV, exportPDF, exportWord } from './export.js';
 import { USE_SUPABASE } from './config.js';
 
 const app = document.getElementById('app');
@@ -644,6 +644,7 @@ function adminStudents() {
   <div class="page-head"><div><h1>Students</h1><p class="muted">${students.length} enrolled · click a student for detail</p></div>
     <div class="head-actions">
       <button class="btn btn-outline btn-sm" data-action="export-students-csv">⬇ CSV</button>
+      <button class="btn btn-outline btn-sm" data-action="export-students-word">⬇ Word</button>
       <button class="btn btn-outline btn-sm" data-action="export-students-pdf">⬇ PDF</button>
     </div>
   </div>
@@ -823,15 +824,17 @@ function crmRows() {
   const q = crm.q.trim().toLowerCase();
   const matches = (txt) => !q || String(txt).toLowerCase().includes(q);
 
+  const grantText = (p) => (p.grantAwarded ? `$${p.grantAmount || 0}` : '—');
+
   if (crm.view === 'leads') {
     let leads = store.getLeads();
     if (crm.status !== 'all') leads = leads.filter((l) => l.status === crm.status);
     leads = leads.filter((l) => matches(l.name) || matches(l.email) || matches(l.interest) || matches(l.source));
     return {
       kind: 'leads',
-      columns: ['Name', 'Email', 'Phone', 'Source', 'Interest', 'Status', 'Created', 'Notes'],
+      columns: ['Name', 'Email', 'Phone', 'Source', 'Interest', 'Status', 'Grant ($300 fee)', 'Created', 'Notes'],
       data: leads,
-      exportRows: leads.map((l) => [l.name, l.email, l.phone, l.source, l.interest, l.status, fmtDate(l.createdAt), l.notes]),
+      exportRows: leads.map((l) => [l.name, l.email, l.phone, l.source, l.interest, l.status, grantText(l), fmtDate(l.createdAt), l.notes]),
     };
   }
   // students view
@@ -840,13 +843,35 @@ function crmRows() {
   const withStats = students.map((s) => ({ s, st: store.getStudentStats(s.id) }));
   return {
     kind: 'students',
-    columns: ['Name', 'Email', 'Phone', 'Cohort', 'Plan', 'Enrolled', 'Completion', 'Avg score', 'Pending'],
+    columns: ['Name', 'Email', 'Phone', 'Cohort', 'Plan', 'Enrolled', 'Grant ($300 fee)', 'Completion', 'Avg score', 'Pending'],
     data: withStats,
     exportRows: withStats.map(({ s, st }) => [
-      s.name, s.email, s.phone, s.cohort, s.plan, fmtDate(s.enrolled),
+      s.name, s.email, s.phone, s.cohort, s.plan, fmtDate(s.enrolled), grantText(s),
       `${st.completionPct}%`, st.avgScore == null ? '—' : `${st.avgScore}%`, st.pendingGrading,
     ]),
   };
+}
+
+/** Columns + rows for the Students roster export (CSV/PDF/Word). */
+function studentExportData() {
+  const cols = ['Name', 'Email', 'Phone', 'Cohort', 'Plan', 'Enrolled', 'Grant ($300 fee)', 'Completion', 'Avg score', 'Pending'];
+  const rows = store.getStudents().map((s) => {
+    const st = store.getStudentStats(s.id);
+    return [s.name, s.email, s.phone, s.cohort, s.plan, fmtDate(s.enrolled),
+      s.grantAwarded ? `$${s.grantAmount || 0}` : '—',
+      `${st.completionPct}%`, st.avgScore == null ? '—' : `${st.avgScore}%`, st.pendingGrading];
+  });
+  return { cols, rows };
+}
+
+/** Grant ($300 fee) cell — checkbox + editable amount, for leads & students. */
+function grantCell(kind, person) {
+  const awarded = !!person.grantAwarded;
+  const amt = person.grantAmount || 300;
+  return `<td><div class="grant-cell">
+    <input type="checkbox" class="grant-chk" data-action="${kind}-grant" data-id="${person.id}" ${awarded ? 'checked' : ''} title="Grant covers the $300 fee" />
+    <input type="number" class="grant-amt" data-action="${kind}-grant-amt" data-id="${person.id}" value="${amt}" min="0" step="50" ${awarded ? '' : 'disabled'} />
+  </div></td>`;
 }
 
 function adminCRM() {
@@ -866,6 +891,7 @@ function adminCRM() {
         <td><select class="status-select pill-${l.status}" data-action="lead-status" data-id="${l.id}">
           ${STATUS_OPTIONS.map((o) => `<option value="${o}" ${o === l.status ? 'selected' : ''}>${o}</option>`).join('')}
         </select></td>
+        ${grantCell('lead', l)}
         <td>${fmtDate(l.createdAt)}</td>
         <td><input class="notes-input" value="${esc(l.notes)}" data-action="lead-notes" data-id="${l.id}" placeholder="Add a note…" /></td>
       </tr>`
@@ -880,6 +906,7 @@ function adminCRM() {
         <td>${esc(s.cohort)}</td>
         <td>${esc(s.plan)}</td>
         <td>${fmtDate(s.enrolled)}</td>
+        ${grantCell('student', s)}
         <td><div class="cell-prog">${bar(st.completionPct)}<span>${st.completionPct}%</span></div></td>
         <td>${st.avgScore == null ? '—' : st.avgScore + '%'}</td>
         <td>${st.pendingGrading || '—'}</td>
@@ -887,10 +914,16 @@ function adminCRM() {
           )
           .join('');
 
+  // grant summary for the current view
+  const people = r.kind === 'leads' ? r.data : r.data.map((d) => d.s);
+  const granted = people.filter((p) => p.grantAwarded);
+  const grantTotal = granted.reduce((sum, p) => sum + (Number(p.grantAmount) || 0), 0);
+
   return `
   <div class="page-head"><div><h1>Live CRM</h1><p class="muted">Students &amp; leads in one place · changes save instantly</p></div>
     <div class="head-actions">
       <button class="btn btn-outline btn-sm" data-action="export-csv">⬇ CSV</button>
+      <button class="btn btn-outline btn-sm" data-action="export-word">⬇ Word</button>
       <button class="btn btn-primary btn-sm" data-action="export-pdf">⬇ PDF</button>
     </div>
   </div>
@@ -909,7 +942,9 @@ function adminCRM() {
           </select>`
         : ''
     }
-    <span class="crm-count">${count} record${count === 1 ? '' : 's'}</span>
+    <span class="crm-count">${count} record${count === 1 ? '' : 's'}${
+      granted.length ? ` · ${granted.length} grant${granted.length === 1 ? '' : 's'} ($${grantTotal})` : ''
+    }</span>
   </div>
 
   <section class="panel no-pad">
@@ -1058,25 +1093,33 @@ app.addEventListener('click', async (e) => {
       });
       break;
     }
-    case 'export-students-csv': {
-      const students = store.getStudents();
-      const cols = ['Name', 'Email', 'Phone', 'Cohort', 'Plan', 'Enrolled', 'Completion', 'Avg score', 'Pending'];
-      const rows = students.map((s) => {
-        const st = store.getStudentStats(s.id);
-        return [s.name, s.email, s.phone, s.cohort, s.plan, fmtDate(s.enrolled), `${st.completionPct}%`, st.avgScore == null ? '—' : `${st.avgScore}%`, st.pendingGrading];
+    case 'export-word': {
+      const r = crmRows();
+      exportWord({
+        title: r.kind === 'leads' ? 'CRM — Leads & Prospects' : 'CRM — Enrolled Students',
+        subtitle: `Generated ${fmtDate(todayISO())} · ${r.exportRows.length} records`,
+        columns: r.columns,
+        rows: r.exportRows,
+        filename: `umof-${r.kind}-${todayISO()}.doc`,
       });
+      toast('Word document downloaded');
+      break;
+    }
+    case 'export-students-csv': {
+      const { cols, rows } = studentExportData();
       downloadCSV(cols, rows, `umof-students-${todayISO()}.csv`);
       toast('CSV downloaded');
       break;
     }
     case 'export-students-pdf': {
-      const students = store.getStudents();
-      const cols = ['Name', 'Email', 'Phone', 'Cohort', 'Plan', 'Enrolled', 'Completion', 'Avg score', 'Pending'];
-      const rows = students.map((s) => {
-        const st = store.getStudentStats(s.id);
-        return [s.name, s.email, s.phone, s.cohort, s.plan, fmtDate(s.enrolled), `${st.completionPct}%`, st.avgScore == null ? '—' : `${st.avgScore}%`, st.pendingGrading];
-      });
+      const { cols, rows } = studentExportData();
       exportPDF({ title: 'Students — Progress Report', subtitle: `Generated ${fmtDate(todayISO())} · ${rows.length} students`, columns: cols, rows });
+      break;
+    }
+    case 'export-students-word': {
+      const { cols, rows } = studentExportData();
+      exportWord({ title: 'Students — Progress Report', subtitle: `Generated ${fmtDate(todayISO())} · ${rows.length} students`, columns: cols, rows, filename: `umof-students-${todayISO()}.doc` });
+      toast('Word document downloaded');
       break;
     }
   }
@@ -1228,6 +1271,17 @@ app.addEventListener('change', async (e) => {
     toast('Note saved');
   } else if (action === 'crm-status') {
     crm.status = node.value;
+    render();
+  } else if (action === 'lead-grant' || action === 'student-grant') {
+    const amt = Number(node.closest('tr')?.querySelector('.grant-amt')?.value) || 300;
+    const fn = action === 'lead-grant' ? store.setLeadGrant : store.setStudentGrant;
+    fn(node.dataset.id, node.checked, amt);
+    toast(node.checked ? 'Grant marked ✓' : 'Grant removed');
+    render();
+  } else if (action === 'lead-grant-amt' || action === 'student-grant-amt') {
+    const fn = action === 'lead-grant-amt' ? store.setLeadGrant : store.setStudentGrant;
+    fn(node.dataset.id, true, Number(node.value) || 0);
+    toast('Grant amount updated');
     render();
   } else if (action === 'upload-video') {
     const file = node.files && node.files[0];

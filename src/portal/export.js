@@ -91,3 +91,46 @@ export function exportPDF({ title, subtitle, columns, rows }) {
     </body></html>`);
   win.document.close();
 }
+
+/**
+ * Download a branded Word document (.doc). Uses the standard, dependency-free
+ * Word-HTML format, which Word/Google Docs/Pages all open cleanly.
+ * @param {object} opts {title, subtitle, columns, rows, filename}
+ */
+export function exportWord({ title, subtitle, columns, rows, filename }) {
+  const esc = (v) =>
+    String(v == null ? '' : v).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const head = columns.map((c) => `<th>${esc(c)}</th>`).join('');
+  const body = rows
+    .map((r) => `<tr>${r.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`)
+    .join('');
+
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+  <head><meta charset="utf-8" /><title>${esc(title)}</title>
+  <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
+  <style>
+    body { font-family: Calibri, Arial, sans-serif; color: #271a1c; }
+    h1 { font-family: Georgia, serif; color: #6e1423; font-size: 18pt; margin: 0 0 2pt; }
+    .sub { color: #6f6266; font-size: 9pt; margin-bottom: 12pt; }
+    table { border-collapse: collapse; width: 100%; font-size: 9pt; }
+    th { background: #6e1423; color: #ffffff; text-align: left; padding: 5pt 7pt; border: 1px solid #6e1423; }
+    td { padding: 5pt 7pt; border: 1px solid #d9c9b0; vertical-align: top; }
+    .org { color: #6f6266; font-size: 8pt; margin-top: 10pt; }
+  </style></head>
+  <body>
+    <h1>${esc(title)}</h1>
+    <div class="sub">${esc(subtitle)}</div>
+    <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
+    <p class="org">Unlimited Mind of Freedom · 501(c)(3) · Lithonia, GA — Confidential, generated from the live CRM.</p>
+  </body></html>`;
+
+  const blob = new Blob(['﻿', html], { type: 'application/msword' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || 'crm.doc';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

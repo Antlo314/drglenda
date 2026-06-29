@@ -29,7 +29,7 @@ export const SEED = {
     { id: 'u-carlos', role: 'student', name: 'Carlos Mendez', email: 'carlos@umof.org', password: 'demo1234', phone: '(678) 555-0203', cohort: 'Summer 2026', enrolled: '2026-06-14', plan: 'Full Program' },
     { id: 'u-tasha', role: 'student', name: 'Tasha Greene', email: 'tasha@umof.org', password: 'demo1234', phone: '(770) 555-0166', cohort: 'Summer 2026', enrolled: '2026-06-13', plan: 'Payment Plan' },
     { id: 'u-wei', role: 'student', name: 'Wei Chen', email: 'wei@umof.org', password: 'demo1234', phone: '(404) 555-0151', cohort: 'Summer 2026', enrolled: '2026-06-15', plan: 'Full Program' },
-    { id: 'u-destiny', role: 'student', name: 'Destiny Hughes', email: 'destiny@umof.org', password: 'demo1234', phone: '(470) 555-0190', cohort: 'Summer 2026', enrolled: '2026-06-16', plan: 'Scholarship' },
+    { id: 'u-destiny', role: 'student', name: 'Destiny Hughes', email: 'destiny@umof.org', password: 'demo1234', phone: '(470) 555-0190', cohort: 'Summer 2026', enrolled: '2026-06-16', plan: 'Scholarship', grantAwarded: true, grantAmount: 300 },
   ],
 
   // ---- Class sessions (the 12-week Funding Masterclass; 6 published so far) --
@@ -212,7 +212,7 @@ export const SEED = {
   leads: [
     { id: 'l1', name: 'Renee Carter', email: 'renee.carter@example.com', phone: '(404) 555-0311', source: 'Website form', interest: 'Funding Masterclass', status: 'new', createdAt: '2026-06-26', notes: 'Asked about the payment plan option.' },
     { id: 'l2', name: 'Marcus Bell', email: 'marcus.bell@example.com', phone: '(678) 555-0344', source: 'Instagram', interest: 'Funding Masterclass', status: 'contacted', createdAt: '2026-06-24', notes: 'Sent enrollment link; following up Monday.' },
-    { id: 'l3', name: 'Latoya Simmons', email: 'latoya.s@example.com', phone: '(470) 555-0356', source: 'Event — Boss Court TV', interest: 'Business Growth Plan', status: 'qualified', createdAt: '2026-06-20', notes: 'Already has an LLC; ready to enroll.' },
+    { id: 'l3', name: 'Latoya Simmons', email: 'latoya.s@example.com', phone: '(470) 555-0356', source: 'Event — Boss Court TV', interest: 'Business Growth Plan', status: 'qualified', createdAt: '2026-06-20', notes: 'Already has an LLC; ready to enroll.', grantAwarded: true, grantAmount: 300 },
     { id: 'l4', name: 'Daniel Okoro', email: 'd.okoro@example.com', phone: '(404) 555-0367', source: 'Referral', interest: 'Funding Masterclass', status: 'new', createdAt: '2026-06-27', notes: 'Referred by Maya Thompson.' },
     { id: 'l5', name: 'Sophia Reyes', email: 'sophia.reyes@example.com', phone: '(678) 555-0389', source: 'Website form', interest: 'Scholarship', status: 'contacted', createdAt: '2026-06-22', notes: 'Sent scholarship application form.' },
     { id: 'l6', name: 'Kevin Walsh', email: 'kevin.walsh@example.com', phone: '(770) 555-0390', source: 'Newsletter', interest: 'Funding Masterclass', status: 'lost', createdAt: '2026-06-12', notes: 'Timing not right; revisit in fall cohort.' },

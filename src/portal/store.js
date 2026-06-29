@@ -108,6 +108,7 @@ const mapQuiz = (r) => ({
 const mapProfile = (r) => ({
   id: r.id, role: r.role, name: r.name, email: r.email, phone: r.phone,
   title: r.title, cohort: r.cohort, enrolled: d10(r.enrolled), plan: r.plan,
+  grantAwarded: !!r.grant_awarded, grantAmount: Number(r.grant_amount) || 0,
 });
 const mapSubmission = (r) => ({
   type: r.type, status: r.status, score: r.score, total: r.total,
@@ -163,7 +164,10 @@ export async function hydrate(user) {
   // CRM leads — admin only
   if (isAdmin) {
     const { data: leads } = await supabase.from('leads').select('*');
-    next.leads = (leads || []).map((l) => ({ ...l, createdAt: d10(l.created_at) }));
+    next.leads = (leads || []).map((l) => ({
+      ...l, createdAt: d10(l.created_at),
+      grantAwarded: !!l.grant_awarded, grantAmount: Number(l.grant_amount) || 0,
+    }));
   }
 
   set(next);
@@ -327,6 +331,29 @@ export function addLead(lead) {
   );
 }
 
+/* ---- Grant ($300 fee) tracking -------------------------------------------- */
+export function setLeadGrant(leadId, awarded, amount) {
+  const next = structuredClone(state);
+  const lead = next.leads.find((l) => l.id === leadId);
+  if (lead) {
+    lead.grantAwarded = awarded;
+    lead.grantAmount = amount;
+  }
+  set(next);
+  push(supabase.from('leads').update({ grant_awarded: awarded, grant_amount: amount }).eq('id', leadId));
+}
+
+export function setStudentGrant(studentId, awarded, amount) {
+  const next = structuredClone(state);
+  const u = next.users.find((x) => x.id === studentId);
+  if (u) {
+    u.grantAwarded = awarded;
+    u.grantAmount = amount;
+  }
+  set(next);
+  push(supabase.from('profiles').update({ grant_awarded: awarded, grant_amount: amount }).eq('id', studentId));
+}
+
 /* ===========================================================================
    REALTIME — live CRM (admin only, Supabase mode)
    ======================================================================== */
@@ -340,7 +367,10 @@ export function startRealtime(user, onChange) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, async () => {
       const { data } = await supabase.from('leads').select('*');
       const next = structuredClone(state);
-      next.leads = (data || []).map((l) => ({ ...l, createdAt: d10(l.created_at) }));
+      next.leads = (data || []).map((l) => ({
+        ...l, createdAt: d10(l.created_at),
+        grantAwarded: !!l.grant_awarded, grantAmount: Number(l.grant_amount) || 0,
+      }));
       set(next);
       onChange?.();
     })

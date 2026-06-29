@@ -118,7 +118,17 @@ export async function signUp(name, email, password) {
     password,
     options: { data: { name: name.trim() }, emailRedirectTo: `${location.origin}/portal.html` },
   });
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    // The signup gate (see access-and-grants.sql) blocks non-approved emails;
+    // Supabase surfaces that as a generic DB error — translate it for the user.
+    const blocked = /database error saving new user|umof_not_approved|not_approved/i.test(error.message || '');
+    return {
+      ok: false,
+      error: blocked
+        ? 'This email isn’t on the approved enrollment list. Please sign up with the exact email you used on your registration form, or contact UMOF for access.'
+        : error.message,
+    };
+  }
   if (data.session) {
     cachedUser = await fetchProfile(data.user);
     return { ok: true, user: cachedUser };
