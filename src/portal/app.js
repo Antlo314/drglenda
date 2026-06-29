@@ -4,7 +4,10 @@
 
 import './portal.css';
 import * as store from './store.js';
-import { login, logout, currentUser, initAuth } from './auth.js';
+import {
+  login, logout, currentUser, initAuth,
+  signUp, requestPasswordReset, updatePassword, updateDisplayName, onAuthEvent,
+} from './auth.js';
 import { downloadCSV, exportPDF } from './export.js';
 import { USE_SUPABASE } from './config.js';
 
@@ -57,10 +60,23 @@ function toast(msg) {
 let route = { name: null, params: {} };
 let crm = { view: 'leads', q: '', status: 'all' };
 
+// logged-out auth screens
+let authScreen = 'login'; // 'login' | 'signup' | 'forgot'
+let authError = '';
+let authInfo = '';
+let recoveryMode = false; // user arrived via a password-reset link
+
 function go(name, params = {}) {
   route = { name, params };
   render();
   document.querySelector('.portal-main')?.scrollTo(0, 0);
+}
+
+function goAuth(screen) {
+  authScreen = screen;
+  authError = '';
+  authInfo = '';
+  render();
 }
 
 /** Re-render in place when realtime pushes a change (only while logged in). */
@@ -68,10 +84,26 @@ function liveRerender() {
   if (currentUser()) render();
 }
 
+/** Shared post-authentication entry: load data, start realtime, show dashboard. */
+async function enterApp(user) {
+  await store.hydrate(user);
+  store.startRealtime(user, liveRerender);
+  go(user.role === 'admin' ? 'admin-home' : 'student-home');
+}
+
+/** Disable a form's submit button and show a working label. */
+function setBusy(form, label) {
+  const btn = form.querySelector('button[type="submit"]');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = label;
+  }
+}
+
 /* ===========================================================================
    LOGIN
    ======================================================================== */
-function viewLogin(error = '') {
+function authShell(inner) {
   return `
   <div class="auth-wrap">
     <div class="auth-card">
@@ -79,23 +111,39 @@ function viewLogin(error = '') {
         <img src="/assets/umof-logo.png" alt="UMOF" width="46" height="46" />
         <span><strong>UMOF</strong><small>Learning Portal</small></span>
       </a>
-      <h1>Sign in</h1>
-      <p class="auth-sub">Students access class sessions, notes &amp; tests. Instructors manage progress, grading &amp; the CRM.</p>
-      <form id="loginForm" class="auth-form" novalidate>
-        <label class="field"><span>Email</span>
-          <input type="email" name="email" autocomplete="username" placeholder="you@umof.org" required />
-        </label>
-        <label class="field"><span>Password</span>
-          <input type="password" name="password" autocomplete="current-password" placeholder="••••••••" required />
-        </label>
-        ${error ? `<p class="auth-error">${esc(error)}</p>` : ''}
-        <button type="submit" class="btn btn-primary btn-full">Sign in</button>
-      </form>
+      ${inner}
+      <a class="auth-back" href="/">← Back to the main website</a>
+    </div>
+  </div>`;
+}
 
-      ${
-        USE_SUPABASE
-          ? ''
-          : `<div class="auth-demo">
+function authMsgs() {
+  return `${authError ? `<p class="auth-error">${esc(authError)}</p>` : ''}${
+    authInfo ? `<p class="auth-ok">${esc(authInfo)}</p>` : ''
+  }`;
+}
+
+function viewLogin() {
+  return authShell(`
+    <h1>Sign in</h1>
+    <p class="auth-sub">Students access class sessions, notes &amp; tests. Instructors manage progress, grading &amp; the CRM.</p>
+    <form id="loginForm" class="auth-form" novalidate>
+      <label class="field"><span>Email</span>
+        <input type="email" name="email" autocomplete="username" placeholder="you@example.com" required />
+      </label>
+      <label class="field"><span>Password</span>
+        <input type="password" name="password" autocomplete="current-password" placeholder="••••••••" required />
+      </label>
+      ${authMsgs()}
+      <button type="submit" class="btn btn-primary btn-full">Sign in</button>
+    </form>
+    ${
+      USE_SUPABASE
+        ? `<div class="auth-links">
+            <button class="link-btn" data-action="auth-screen" data-screen="forgot">Forgot password?</button>
+            <span>New here? <button class="link-btn strong" data-action="auth-screen" data-screen="signup">Create an account</button></span>
+          </div>`
+        : `<div class="auth-demo">
         <p>Demo logins — click to try instantly:</p>
         <div class="auth-demo-btns">
           <button class="btn btn-outline btn-sm" data-action="demo" data-role="student">Student demo</button>
@@ -103,9 +151,104 @@ function viewLogin(error = '') {
         </div>
         <small>student: jordan@umof.org · admin: admin@umof.org — password for both: shown on click</small>
       </div>`
-      }
-      <a class="auth-back" href="/">← Back to the main website</a>
+    }
+  `);
+}
+
+function viewSignup() {
+  return authShell(`
+    <h1>Create your account</h1>
+    <p class="auth-sub">Sign up to access your class sessions, notes, and tests.</p>
+    <form id="signupForm" class="auth-form" novalidate>
+      <label class="field"><span>Full name</span>
+        <input type="text" name="name" autocomplete="name" placeholder="Jane Doe" required />
+      </label>
+      <label class="field"><span>Email</span>
+        <input type="email" name="email" autocomplete="email" placeholder="you@example.com" required />
+      </label>
+      <label class="field"><span>Password</span>
+        <input type="password" name="password" autocomplete="new-password" placeholder="At least 8 characters" minlength="8" required />
+      </label>
+      ${authMsgs()}
+      <button type="submit" class="btn btn-primary btn-full">Create account</button>
+    </form>
+    <div class="auth-links">
+      <span>Already have an account? <button class="link-btn strong" data-action="auth-screen" data-screen="login">Sign in</button></span>
     </div>
+  `);
+}
+
+function viewForgot() {
+  return authShell(`
+    <h1>Reset your password</h1>
+    <p class="auth-sub">Enter your email and we’ll send you a link to set a new password.</p>
+    <form id="forgotForm" class="auth-form" novalidate>
+      <label class="field"><span>Email</span>
+        <input type="email" name="email" autocomplete="email" placeholder="you@example.com" required />
+      </label>
+      ${authMsgs()}
+      <button type="submit" class="btn btn-primary btn-full">Send reset link</button>
+    </form>
+    <div class="auth-links">
+      <button class="link-btn" data-action="auth-screen" data-screen="login">← Back to sign in</button>
+    </div>
+  `);
+}
+
+function viewReset() {
+  return authShell(`
+    <h1>Set a new password</h1>
+    <p class="auth-sub">Choose a new password for your account.</p>
+    <form id="resetForm" class="auth-form" novalidate>
+      <label class="field"><span>New password</span>
+        <input type="password" name="password" autocomplete="new-password" placeholder="At least 8 characters" minlength="8" required />
+      </label>
+      ${authMsgs()}
+      <button type="submit" class="btn btn-primary btn-full">Update password</button>
+    </form>
+  `);
+}
+
+function renderAuthScreen() {
+  const screens = { login: viewLogin, signup: viewSignup, forgot: viewForgot };
+  return (screens[authScreen] || viewLogin)();
+}
+
+/* ===========================================================================
+   ACCOUNT (logged in) — change name & password
+   ======================================================================== */
+function accountView(user) {
+  return `
+  <div class="page-head"><div><h1>Account</h1><p class="muted">Manage your name and password.</p></div></div>
+  <div class="two-col">
+    <section class="panel">
+      <div class="panel-head"><h2>Profile</h2></div>
+      <form id="nameForm" class="acct-form">
+        <label class="field"><span>Display name</span>
+          <input type="text" name="name" value="${esc(user.name)}" required />
+        </label>
+        <label class="field"><span>Email</span>
+          <input type="email" value="${esc(user.email)}" disabled />
+        </label>
+        <button type="submit" class="btn btn-primary">Save name</button>
+      </form>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Change password</h2></div>
+      ${
+        USE_SUPABASE
+          ? `<form id="pwForm" class="acct-form">
+              <label class="field"><span>New password</span>
+                <input type="password" name="password" autocomplete="new-password" placeholder="At least 8 characters" minlength="8" required />
+              </label>
+              <label class="field"><span>Confirm new password</span>
+                <input type="password" name="confirm" autocomplete="new-password" placeholder="Re-enter password" minlength="8" required />
+              </label>
+              <button type="submit" class="btn btn-primary">Update password</button>
+            </form>`
+          : `<p class="muted">Password management is available once the portal is connected to Supabase.</p>`
+      }
+    </section>
   </div>`;
 }
 
@@ -170,6 +313,7 @@ function studentNav(user) {
     { route: 'student-home', label: 'Dashboard', icon: '▥' },
     { route: 'student-sessions', label: 'Class Sessions', icon: '▶' },
     { route: 'student-tests', label: 'My Tests', icon: '✓' },
+    { route: 'account', label: 'Account', icon: '⚙' },
   ];
 }
 
@@ -435,6 +579,7 @@ function adminNav() {
     { route: 'admin-grading', label: 'Grading', icon: '✎', badge: pending || '' },
     { route: 'admin-crm', label: 'CRM', icon: '☎' },
     { route: 'admin-content', label: 'Sessions', icon: '▶' },
+    { route: 'account', label: 'Account', icon: '⚙' },
   ];
 }
 
@@ -781,28 +926,34 @@ function adminCRM() {
    RENDER
    ======================================================================== */
 function render() {
+  // Arrived via a password-reset link — force the "set new password" screen.
+  if (recoveryMode) {
+    app.innerHTML = viewReset();
+    return;
+  }
+
   const user = currentUser();
   if (!user) {
-    app.innerHTML = viewLogin(render._loginError);
-    render._loginError = '';
+    app.innerHTML = renderAuthScreen();
     return;
   }
 
   if (user.role === 'student') {
-    if (!route.name || !route.name.startsWith('student') && !['session', 'quiz'].includes(route.name))
-      route = { name: 'student-home', params: {} };
+    const allowed = ['student-home', 'student-sessions', 'student-tests', 'session', 'quiz', 'account'];
+    if (!allowed.includes(route.name)) route = { name: 'student-home', params: {} };
     const views = {
       'student-home': studentHome,
       'student-sessions': studentSessions,
       'student-tests': studentTests,
       session: sessionDetail,
       quiz: quizView,
+      account: accountView,
     };
     const content = (views[route.name] || studentHome)(user);
     app.innerHTML = shell(user, studentNav(user), content);
   } else {
-    if (!route.name || !['admin-home', 'admin-students', 'admin-student', 'admin-grading', 'grade', 'admin-crm', 'admin-content'].includes(route.name))
-      route = { name: 'admin-home', params: {} };
+    const allowed = ['admin-home', 'admin-students', 'admin-student', 'admin-grading', 'grade', 'admin-crm', 'admin-content', 'account'];
+    if (!allowed.includes(route.name)) route = { name: 'admin-home', params: {} };
     const views = {
       'admin-home': adminHome,
       'admin-students': adminStudents,
@@ -811,6 +962,7 @@ function render() {
       grade: gradeView,
       'admin-crm': adminCRM,
       'admin-content': adminContent,
+      account: () => accountView(user),
     };
     const content = (views[route.name] || adminHome)();
     app.innerHTML = shell(user, adminNav(), content);
@@ -849,17 +1001,19 @@ app.addEventListener('click', async (e) => {
       const email = role === 'admin' ? 'admin@umof.org' : 'jordan@umof.org';
       const pw = role === 'admin' ? 'admin1234' : 'demo1234';
       const res = await login(email, pw);
-      if (res.ok) {
-        await store.hydrate(res.user);
-        store.startRealtime(res.user, liveRerender);
-        go(role === 'admin' ? 'admin-home' : 'student-home');
-      }
+      if (res.ok) await enterApp(res.user);
       break;
     }
+    case 'auth-screen':
+      goAuth(d.screen);
+      break;
     case 'logout':
       store.stopRealtime();
       await logout();
       route = { name: null, params: {} };
+      authScreen = 'login';
+      authError = '';
+      authInfo = '';
       render();
       break;
     case 'go':
@@ -933,20 +1087,90 @@ app.addEventListener('submit', async (e) => {
   e.preventDefault();
 
   if (form.id === 'loginForm') {
-    const btn = form.querySelector('button[type="submit"]');
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = 'Signing in…';
-    }
+    setBusy(form, 'Signing in…');
     const res = await login(form.email.value, form.password.value);
-    if (res.ok) {
-      await store.hydrate(res.user);
-      store.startRealtime(res.user, liveRerender);
-      go(res.user.role === 'admin' ? 'admin-home' : 'student-home');
-    } else {
-      render._loginError = res.error;
+    if (res.ok) await enterApp(res.user);
+    else {
+      authError = res.error;
+      authInfo = '';
       render();
     }
+    return;
+  }
+
+  if (form.id === 'signupForm') {
+    setBusy(form, 'Creating…');
+    const res = await signUp(form.name.value, form.email.value, form.password.value);
+    if (!res.ok) {
+      authError = res.error;
+      authInfo = '';
+      render();
+      return;
+    }
+    if (res.needsConfirmation) {
+      authScreen = 'login';
+      authError = '';
+      authInfo = 'Account created! Check your email to confirm it, then sign in.';
+      render();
+    } else {
+      authError = '';
+      authInfo = '';
+      await enterApp(res.user);
+    }
+    return;
+  }
+
+  if (form.id === 'forgotForm') {
+    setBusy(form, 'Sending…');
+    const res = await requestPasswordReset(form.email.value);
+    authScreen = 'login';
+    if (res.ok) {
+      authError = '';
+      authInfo = 'If that email has an account, a reset link is on its way.';
+    } else {
+      authError = res.error;
+      authInfo = '';
+    }
+    render();
+    return;
+  }
+
+  if (form.id === 'resetForm') {
+    setBusy(form, 'Updating…');
+    const res = await updatePassword(form.password.value);
+    if (!res.ok) {
+      authError = res.error;
+      render();
+      return;
+    }
+    recoveryMode = false;
+    authError = '';
+    authInfo = '';
+    const user = await initAuth();
+    if (user) await enterApp(user);
+    else {
+      authScreen = 'login';
+      authInfo = 'Password updated — please sign in.';
+      render();
+    }
+    return;
+  }
+
+  if (form.id === 'nameForm') {
+    const res = await updateDisplayName(form.name.value);
+    toast(res.ok ? 'Name updated ✓' : res.error || 'Could not update name');
+    if (res.ok) render();
+    return;
+  }
+
+  if (form.id === 'pwForm') {
+    if (form.password.value !== form.confirm.value) {
+      toast('Passwords don’t match');
+      return;
+    }
+    const res = await updatePassword(form.password.value);
+    toast(res.ok ? 'Password updated ✓' : res.error || 'Could not update password');
+    if (res.ok) form.reset();
     return;
   }
 
@@ -1018,12 +1242,22 @@ app.addEventListener('change', async (e) => {
 /* surface failed background writes (Supabase mode) */
 store.onError(() => toast('Couldn’t reach the server — your last change may not have saved.'));
 
+/* catch the password-reset link — Supabase fires PASSWORD_RECOVERY after load */
+onAuthEvent((event) => {
+  if (event === 'PASSWORD_RECOVERY') {
+    recoveryMode = true;
+    authError = '';
+    authInfo = '';
+    render();
+  }
+});
+
 /* boot: restore any existing session, load the data it can see, then render */
 (async () => {
   app.innerHTML = `<div class="portal-loading"><span class="spinner" aria-hidden="true"></span>Loading your portal…</div>`;
   try {
     const user = await initAuth();
-    if (user) {
+    if (user && !recoveryMode) {
       await store.hydrate(user);
       store.startRealtime(user, liveRerender);
     }

@@ -102,3 +102,60 @@ export async function logout() {
   }
   cachedUser = null;
 }
+
+/* ---- Self-service account flows (Supabase mode) --------------------------- */
+
+/**
+ * Create a new account. The DB trigger (see supabase/auth-bootstrap.sql) makes
+ * the very first account an admin; everyone after is a student.
+ * Returns { ok, user } when signed in immediately, { ok, needsConfirmation:true }
+ * when email confirmation is required, or { ok:false, error }.
+ */
+export async function signUp(name, email, password) {
+  if (!USE_SUPABASE) return { ok: false, error: 'Sign-up requires the live backend.' };
+  const { data, error } = await supabase.auth.signUp({
+    email: String(email).trim(),
+    password,
+    options: { data: { name: name.trim() }, emailRedirectTo: `${location.origin}/portal.html` },
+  });
+  if (error) return { ok: false, error: error.message };
+  if (data.session) {
+    cachedUser = await fetchProfile(data.user);
+    return { ok: true, user: cachedUser };
+  }
+  return { ok: true, needsConfirmation: true };
+}
+
+/** Send a password-reset email. The link returns the user to the portal. */
+export async function requestPasswordReset(email) {
+  if (!USE_SUPABASE) return { ok: false, error: 'Password reset requires the live backend.' };
+  const { error } = await supabase.auth.resetPasswordForEmail(String(email).trim(), {
+    redirectTo: `${location.origin}/portal.html`,
+  });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+/** Set a new password for the currently-authenticated user. */
+export async function updatePassword(newPassword) {
+  if (!USE_SUPABASE) return { ok: false, error: 'Not available in demo mode.' };
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+/** Update the signed-in user's display name (profile + auth metadata). */
+export async function updateDisplayName(name) {
+  if (!USE_SUPABASE || !cachedUser) return { ok: false, error: 'Not available.' };
+  const { error } = await supabase.from('profiles').update({ name: name.trim() }).eq('id', cachedUser.id);
+  if (error) return { ok: false, error: error.message };
+  await supabase.auth.updateUser({ data: { name: name.trim() } });
+  cachedUser = { ...cachedUser, name: name.trim() };
+  return { ok: true, user: cachedUser };
+}
+
+/** Subscribe to Supabase auth events (used to catch the password-recovery link). */
+export function onAuthEvent(handler) {
+  if (!USE_SUPABASE) return;
+  supabase.auth.onAuthStateChange((event, session) => handler(event, session));
+}
