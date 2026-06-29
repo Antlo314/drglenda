@@ -579,6 +579,7 @@ function adminNav() {
     { route: 'admin-grading', label: 'Grading', icon: '✎', badge: pending || '' },
     { route: 'admin-crm', label: 'CRM', icon: '☎' },
     { route: 'admin-content', label: 'Sessions', icon: '▶' },
+    { route: 'admin-access', label: 'Access', icon: '🔑' },
     { route: 'account', label: 'Account', icon: '⚙' },
   ];
 }
@@ -818,6 +819,56 @@ function adminContent() {
   </section>`;
 }
 
+/* ---- Access: approved-student allowlist ----------------------------------- */
+function adminAccess() {
+  const list = store.getAllowedStudents();
+  const registered = new Set(store.getStudents().map((s) => (s.email || '').toLowerCase()));
+  return `
+  <div class="page-head"><div><h1>Access — Approved Students</h1>
+    <p class="muted">Only people on this list can create a student account. Add the email each student used on the enrollment form.</p></div></div>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Add an approved email</h2></div>
+    <form id="approvedForm">
+      <div class="approve-row">
+        <input type="email" name="email" placeholder="student@example.com" autocomplete="off" required />
+        <input type="text" name="note" placeholder="Note (optional, e.g. Summer 2026)" />
+        <button type="submit" class="btn btn-primary">Add</button>
+      </div>
+    </form>
+    ${
+      USE_SUPABASE
+        ? `<p class="hint">Tip: paste an email from your Jotform enrollments. They can then sign up with that exact address.</p>`
+        : `<p class="hint">Demo mode — changes here are local only. Connected to Supabase, this list gates real signups.</p>`
+    }
+  </section>
+
+  <section class="panel no-pad">
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead><tr><th>Email</th><th>Note</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          ${
+            list.length
+              ? list
+                  .map((a) => {
+                    const reg = registered.has(String(a.email).toLowerCase());
+                    return `<tr>
+              <td><strong>${esc(a.email)}</strong></td>
+              <td class="muted">${esc(a.note || '—')}</td>
+              <td>${reg ? `<span class="pill pill-done">Registered</span>` : `<span class="pill pill-todo">Not yet</span>`}</td>
+              <td><button class="btn btn-ghost btn-sm" data-action="remove-allowed" data-email="${esc(a.email)}">Remove</button></td>
+            </tr>`;
+                  })
+                  .join('')
+              : `<tr><td colspan="4" class="empty-cell">No approved emails yet — add one above.</td></tr>`
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>`;
+}
+
 /* ---- CRM ------------------------------------------------------------------ */
 function crmRows() {
   // Returns { columns, rows, exportRows } for the current CRM view + filters.
@@ -987,7 +1038,7 @@ function render() {
     const content = (views[route.name] || studentHome)(user);
     app.innerHTML = shell(user, studentNav(user), content);
   } else {
-    const allowed = ['admin-home', 'admin-students', 'admin-student', 'admin-grading', 'grade', 'admin-crm', 'admin-content', 'account'];
+    const allowed = ['admin-home', 'admin-students', 'admin-student', 'admin-grading', 'grade', 'admin-crm', 'admin-content', 'admin-access', 'account'];
     if (!allowed.includes(route.name)) route = { name: 'admin-home', params: {} };
     const views = {
       'admin-home': adminHome,
@@ -997,6 +1048,7 @@ function render() {
       grade: gradeView,
       'admin-crm': adminCRM,
       'admin-content': adminContent,
+      'admin-access': adminAccess,
       account: () => accountView(user),
     };
     const content = (views[route.name] || adminHome)();
@@ -1053,6 +1105,11 @@ app.addEventListener('click', async (e) => {
       break;
     case 'go':
       go(d.route, { id: d.id, student: d.student, quiz: d.quiz });
+      break;
+    case 'remove-allowed':
+      store.removeAllowedStudent(d.email);
+      toast('Removed from approved list');
+      render();
       break;
     case 'toggle-complete': {
       const user = currentUser();
@@ -1196,6 +1253,13 @@ app.addEventListener('submit', async (e) => {
       authInfo = 'Password updated — please sign in.';
       render();
     }
+    return;
+  }
+
+  if (form.id === 'approvedForm') {
+    const res = store.addAllowedStudent(form.email.value, form.note.value);
+    toast(res.ok ? 'Email approved ✓' : res.error);
+    if (res.ok) render();
     return;
   }
 

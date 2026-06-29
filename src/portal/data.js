@@ -219,4 +219,10 @@ export const SEED = {
     { id: 'l7', name: 'Imani Brooks', email: 'imani.brooks@example.com', phone: '(404) 555-0402', source: 'Event — Boss Court TV', interest: 'Funding Masterclass', status: 'qualified', createdAt: '2026-06-25', notes: 'Wants to start before July 2nd deadline.' },
     { id: 'l8', name: 'Gregory Tan', email: 'greg.tan@example.com', phone: '(470) 555-0415', source: 'Website form', interest: 'Business Growth Plan', status: 'new', createdAt: '2026-06-28', notes: 'Requested a callback.' },
   ],
+
+  // ---- Approved-student emails (who may create an account) -------------------
+  allowedStudents: [
+    { email: 'jordan@umof.org', note: 'Summer 2026 cohort' },
+    { email: 'maya@umof.org', note: 'Summer 2026 cohort' },
+  ],
 };

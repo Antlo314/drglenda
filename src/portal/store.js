@@ -24,7 +24,7 @@ let errorHandler = null;
 let state = USE_SUPABASE ? emptyState() : loadLocal();
 
 function emptyState() {
-  return { users: [], sessions: [], quizzes: [], progress: {}, leads: [] };
+  return { users: [], sessions: [], quizzes: [], progress: {}, leads: [], allowedStudents: [] };
 }
 function loadLocal() {
   try {
@@ -58,10 +58,12 @@ function reportError(e) {
   console.error('[portal] backend write failed:', e);
   errorHandler?.(e);
 }
-/** Fire-and-forget a Supabase write; surface errors via the error handler. */
-function push(promise) {
-  if (!USE_SUPABASE) return;
-  Promise.resolve(promise)
+/** Fire-and-forget a Supabase write; surface errors via the error handler.
+ *  Takes a THUNK so `supabase.from(...)` is only evaluated when connected —
+ *  in demo mode `supabase` is null and must never be touched. */
+function push(queryFn) {
+  if (!USE_SUPABASE || !supabase) return;
+  Promise.resolve(queryFn())
     .then((res) => {
       if (res && res.error) reportError(res.error);
     })
@@ -161,13 +163,18 @@ export async function hydrate(user) {
   (completions || []).forEach((c) => ensure(c.profile_id).completed.push(c.session_id));
   (submissions || []).forEach((s) => (ensure(s.profile_id).submissions[s.quiz_id] = mapSubmission(s)));
 
-  // CRM leads — admin only
+  // CRM leads + approved-student allowlist — admin only
   if (isAdmin) {
     const { data: leads } = await supabase.from('leads').select('*');
     next.leads = (leads || []).map((l) => ({
       ...l, createdAt: d10(l.created_at),
       grantAwarded: !!l.grant_awarded, grantAmount: Number(l.grant_amount) || 0,
     }));
+    const { data: allowed } = await supabase
+      .from('allowed_students')
+      .select('*')
+      .order('added_at', { ascending: false });
+    next.allowedStudents = (allowed || []).map((a) => ({ email: a.email, note: a.note || '', addedAt: d10(a.added_at) }));
   }
 
   set(next);
@@ -237,7 +244,7 @@ export function setSessionComplete(studentId, sessionId, complete) {
   complete ? s.add(sessionId) : s.delete(sessionId);
   next.progress[studentId].completed = [...s];
   set(next);
-  push(
+  push(() =>
     complete
       ? supabase.from('session_completions').upsert(
           { profile_id: studentId, session_id: sessionId },
@@ -262,7 +269,7 @@ export function submitAutoQuiz(studentId, quizId, answers, todayISO) {
     type: 'auto', score, total, correct, status: 'graded', submittedAt: todayISO, answers,
   };
   set(next);
-  push(
+  push(() =>
     supabase.from('submissions').upsert(
       { profile_id: studentId, quiz_id: quizId, type: 'auto', status: 'graded', score, total, correct, answers, submitted_at: todayISO },
       { onConflict: 'profile_id,quiz_id' }
@@ -278,7 +285,7 @@ export function submitManual(studentId, quizId, answer, todayISO) {
     type: 'manual', status: 'submitted', submittedAt: todayISO, answer,
   };
   set(next);
-  push(
+  push(() =>
     supabase.from('submissions').upsert(
       { profile_id: studentId, quiz_id: quizId, type: 'manual', status: 'submitted', answer, submitted_at: todayISO },
       { onConflict: 'profile_id,quiz_id' }
@@ -295,7 +302,7 @@ export function gradeSubmission(studentId, quizId, score, feedback, todayISO) {
   sub.feedback = feedback;
   sub.gradedAt = todayISO;
   set(next);
-  push(
+  push(() =>
     supabase
       .from('submissions')
       .update({ status: 'graded', score, feedback, graded_at: todayISO })
@@ -308,7 +315,7 @@ export function updateLeadStatus(leadId, status) {
   const lead = next.leads.find((l) => l.id === leadId);
   if (lead) lead.status = status;
   set(next);
-  push(supabase.from('leads').update({ status }).eq('id', leadId));
+  push(() => supabase.from('leads').update({ status }).eq('id', leadId));
 }
 
 export function updateLeadNotes(leadId, notes) {
@@ -316,7 +323,7 @@ export function updateLeadNotes(leadId, notes) {
   const lead = next.leads.find((l) => l.id === leadId);
   if (lead) lead.notes = notes;
   set(next);
-  push(supabase.from('leads').update({ notes }).eq('id', leadId));
+  push(() => supabase.from('leads').update({ notes }).eq('id', leadId));
 }
 
 export function addLead(lead) {
@@ -324,7 +331,7 @@ export function addLead(lead) {
   const local = { id: `l-${Date.now()}`, status: 'new', ...lead };
   next.leads.push(local);
   set(next);
-  push(
+  push(() =>
     supabase
       .from('leads')
       .insert({ name: lead.name, email: lead.email, phone: lead.phone, source: lead.source, interest: lead.interest, status: local.status, notes: lead.notes })
@@ -340,7 +347,7 @@ export function setLeadGrant(leadId, awarded, amount) {
     lead.grantAmount = amount;
   }
   set(next);
-  push(supabase.from('leads').update({ grant_awarded: awarded, grant_amount: amount }).eq('id', leadId));
+  push(() => supabase.from('leads').update({ grant_awarded: awarded, grant_amount: amount }).eq('id', leadId));
 }
 
 export function setStudentGrant(studentId, awarded, amount) {
@@ -351,7 +358,32 @@ export function setStudentGrant(studentId, awarded, amount) {
     u.grantAmount = amount;
   }
   set(next);
-  push(supabase.from('profiles').update({ grant_awarded: awarded, grant_amount: amount }).eq('id', studentId));
+  push(() => supabase.from('profiles').update({ grant_awarded: awarded, grant_amount: amount }).eq('id', studentId));
+}
+
+/* ---- Approved-student allowlist (who may create an account) --------------- */
+export const getAllowedStudents = () => state.allowedStudents || [];
+
+export function addAllowedStudent(email, note) {
+  const e = String(email).trim();
+  if (!e) return { ok: false, error: 'Enter an email.' };
+  if ((state.allowedStudents || []).some((a) => a.email.toLowerCase() === e.toLowerCase())) {
+    return { ok: false, error: 'That email is already approved.' };
+  }
+  const next = structuredClone(state);
+  (next.allowedStudents ??= []).unshift({ email: e, note: note || '' });
+  set(next);
+  push(() => supabase.from('allowed_students').insert({ email: e, note: note || null }));
+  return { ok: true };
+}
+
+export function removeAllowedStudent(email) {
+  const next = structuredClone(state);
+  next.allowedStudents = (next.allowedStudents || []).filter(
+    (a) => a.email.toLowerCase() !== String(email).toLowerCase()
+  );
+  set(next);
+  push(() => supabase.from('allowed_students').delete().eq('email', email));
 }
 
 /* ===========================================================================
