@@ -1,4 +1,5 @@
 import './style.css';
+import './chat/widget.js';
 import { supabase } from './portal/supabase.js';
 import { USE_SUPABASE } from './portal/config.js';
 
