@@ -76,6 +76,61 @@ if (heroVideo) {
 }
 
 /* -------------------------------------------------------------------------
+   Cinematic class reel — lazy autoplay (muted) + sound toggle
+   ------------------------------------------------------------------------- */
+const reel = document.getElementById('classReel');
+if (reel) {
+  const reelFrame = reel.closest('.class-reel-frame');
+  const soundBtn = document.getElementById('classReelSound');
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const playSafe = () => {
+    const p = reel.play();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  };
+
+  // Only fetch the video bytes once it's near the viewport (preload="none").
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && !reduceMotion) playSafe();
+          else reel.pause();
+        });
+      },
+      { threshold: 0.4 }
+    ).observe(reel);
+  } else if (!reduceMotion) {
+    playSafe();
+  }
+
+  // Click the video to play/pause.
+  reel.addEventListener('click', () => {
+    if (reel.paused) playSafe();
+    else reel.pause();
+  });
+
+  // Sound toggle (starts muted to satisfy autoplay policies).
+  if (soundBtn) {
+    const mutedIcon = soundBtn.querySelector('[data-icon="muted"]');
+    const unmutedIcon = soundBtn.querySelector('[data-icon="unmuted"]');
+    const label = soundBtn.querySelector('.class-reel-sound-label');
+
+    soundBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      reel.muted = !reel.muted;
+      const on = !reel.muted;
+      if (on) playSafe();
+      soundBtn.setAttribute('aria-pressed', String(on));
+      soundBtn.setAttribute('aria-label', on ? 'Mute video' : 'Unmute video');
+      reelFrame?.classList.toggle('is-unmuted', on);
+      if (mutedIcon) mutedIcon.style.display = on ? 'none' : '';
+      if (unmutedIcon) unmutedIcon.style.display = on ? '' : 'none';
+      if (label) label.textContent = on ? 'Sound on' : 'Tap for sound';
+    });
+  }
+}
+
+/* -------------------------------------------------------------------------
    Scroll reveal animations
    ------------------------------------------------------------------------- */
 const revealObserver = new IntersectionObserver(
