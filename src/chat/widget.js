@@ -10,12 +10,12 @@ const CONTACT_EMAIL = 'info@umof.org';
 const ENDPOINT = '/api/chat';
 
 const GREETING =
-  "Hi! I'm Ada, the UMOF assistant \u{1F44B}. Ask me anything about The Entrepreneur's Journey: Funding Masterclass — the schedule, tuition, what you'll learn, or how to enroll.";
+  "Hi! I'm Jaance, the UMOF assistant \u{1F44B}. Ask me anything about The Entrepreneur's Journey: Funding Masterclass — the schedule, tuition, what you'll learn, or how to enroll.";
 
 const SUGGESTIONS = [
-  'When does class start?',
+  'How is this different from a bank loan?',
+  'What kinds of funding can I get?',
   'How much is tuition?',
-  'What will I learn?',
   'How do I enroll?',
 ];
 
@@ -66,10 +66,10 @@ function buildWidget() {
   root.innerHTML = `
     <div class="umof-chat-panel" role="dialog" aria-modal="false" aria-label="UMOF assistant chat" hidden>
       <div class="umof-chat-header">
-        <div class="umof-chat-header-avatar" aria-hidden="true">A</div>
+        <div class="umof-chat-header-avatar" aria-hidden="true">J</div>
         <div class="umof-chat-header-text">
           <div class="umof-chat-header-title">UMOF Assistant</div>
-          <div class="umof-chat-header-sub"><span class="umof-chat-status-dot"></span> Funding Masterclass expert</div>
+          <div class="umof-chat-header-sub"><span class="umof-chat-status-dot"></span> Funding Readiness Coach</div>
         </div>
         <button type="button" class="umof-chat-close" aria-label="Close chat">${icon.close}</button>
       </div>

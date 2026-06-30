@@ -1,4 +1,4 @@
-# Site Chat Assistant ("Ada") — Setup
+# Site Chat Assistant ("Jaance") — Setup
 
 A floating chat widget on the public homepage that's an expert on UMOF and the
 Funding Masterclass. It answers visitors' questions and, for anything it can't
