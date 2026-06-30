@@ -58,7 +58,7 @@ function toast(msg) {
 
 /* ---- app state ------------------------------------------------------------ */
 let route = { name: null, params: {} };
-let crm = { view: 'leads', q: '', status: 'all' };
+let crm = { view: 'leads', q: '', status: 'all', adding: false };
 
 // logged-out auth screens
 let authScreen = 'login'; // 'login' | 'signup' | 'forgot'
@@ -928,12 +928,13 @@ function grantCell(kind, person) {
 function adminCRM() {
   const r = crmRows();
   const count = r.data.length;
+  const isLeads = r.kind === 'leads';
+  const totalLeads = store.getLeads().length;
 
-  const tableBody =
-    r.kind === 'leads'
-      ? r.data
-          .map(
-            (l) => `<tr>
+  const tableBody = isLeads
+    ? r.data
+        .map(
+          (l) => `<tr>
         <td><strong>${esc(l.name)}</strong></td>
         <td><a href="mailto:${esc(l.email)}">${esc(l.email)}</a></td>
         <td>${esc(l.phone)}</td>
@@ -945,12 +946,13 @@ function adminCRM() {
         ${grantCell('lead', l)}
         <td>${fmtDate(l.createdAt)}</td>
         <td><input class="notes-input" value="${esc(l.notes)}" data-action="lead-notes" data-id="${l.id}" placeholder="Add a note…" /></td>
+        <td><button class="row-del" data-action="delete-lead" data-id="${l.id}" title="Delete record" aria-label="Delete ${esc(l.name)}">🗑</button></td>
       </tr>`
-          )
-          .join('')
-      : r.data
-          .map(
-            ({ s, st }) => `<tr>
+        )
+        .join('')
+    : r.data
+        .map(
+          ({ s, st }) => `<tr>
         <td><div class="cell-user">${avatar(s, 32)}<strong>${esc(s.name)}</strong></div></td>
         <td><a href="mailto:${esc(s.email)}">${esc(s.email)}</a></td>
         <td>${esc(s.phone)}</td>
@@ -962,22 +964,30 @@ function adminCRM() {
         <td>${st.avgScore == null ? '—' : st.avgScore + '%'}</td>
         <td>${st.pendingGrading || '—'}</td>
       </tr>`
-          )
-          .join('');
+        )
+        .join('');
+
+  // an extra (blank) header for the per-row delete button on the leads table
+  const headCols = isLeads ? [...r.columns, ''] : r.columns;
+  const colCount = headCols.length;
 
   // grant summary for the current view
-  const people = r.kind === 'leads' ? r.data : r.data.map((d) => d.s);
+  const people = isLeads ? r.data : r.data.map((d) => d.s);
   const granted = people.filter((p) => p.grantAwarded);
   const grantTotal = granted.reduce((sum, p) => sum + (Number(p.grantAmount) || 0), 0);
 
   return `
   <div class="page-head"><div><h1>Live CRM</h1><p class="muted">Students &amp; leads in one place · changes save instantly</p></div>
     <div class="head-actions">
+      ${isLeads ? `<button class="btn btn-primary btn-sm" data-action="toggle-add-lead">＋ Add record</button>` : ''}
       <button class="btn btn-outline btn-sm" data-action="export-csv">⬇ CSV</button>
       <button class="btn btn-outline btn-sm" data-action="export-word">⬇ Word</button>
-      <button class="btn btn-primary btn-sm" data-action="export-pdf">⬇ PDF</button>
+      <button class="btn btn-outline btn-sm" data-action="export-pdf">⬇ PDF</button>
+      ${isLeads && totalLeads ? `<button class="btn btn-ghost btn-sm btn-danger" data-action="clear-leads">Clear all</button>` : ''}
     </div>
   </div>
+
+  ${isLeads && crm.adding ? addRecordForm() : ''}
 
   <div class="crm-controls">
     <div class="seg">
@@ -986,7 +996,7 @@ function adminCRM() {
     </div>
     <input id="crmSearch" class="crm-search" placeholder="Search name, email…" value="${esc(crm.q)}" data-action="crm-search" />
     ${
-      crm.view === 'leads'
+      isLeads
         ? `<select class="crm-status" data-action="crm-status">
             <option value="all" ${crm.status === 'all' ? 'selected' : ''}>All statuses</option>
             ${STATUS_OPTIONS.map((o) => `<option value="${o}" ${crm.status === o ? 'selected' : ''}>${o}</option>`).join('')}
@@ -998,13 +1008,56 @@ function adminCRM() {
     }</span>
   </div>
 
+  ${
+    isLeads
+      ? ''
+      : `<p class="crm-hint muted">Students appear here automatically once they create a portal account. To let someone in, approve their email under <button class="link-arrow" data-action="go" data-route="admin-access">Access →</button> To simply track a person, add them as a record under <strong>Leads</strong>.</p>`
+  }
+
   <section class="panel no-pad">
     <div class="table-scroll">
       <table class="data-table crm-table">
-        <thead><tr>${r.columns.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead>
-        <tbody>${tableBody || `<tr><td colspan="${r.columns.length}" class="empty-cell">No matching records.</td></tr>`}</tbody>
+        <thead><tr>${headCols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead>
+        <tbody>${tableBody || `<tr><td colspan="${colCount}" class="empty-cell">${isLeads ? 'No records yet — click “＋ Add record” to add one.' : 'No matching records.'}</td></tr>`}</tbody>
       </table>
     </div>
+  </section>`;
+}
+
+/** The manual "add a student / lead" form — every CRM field is available here. */
+function addRecordForm() {
+  return `
+  <section class="panel crm-add">
+    <div class="panel-head">
+      <h2>Add a student or lead</h2>
+      <p class="muted">Enter everything you know — only a name is required. New records are saved under <strong>Leads</strong>; set the status to <em>enrolled</em> for current students.</p>
+    </div>
+    <form id="addLeadForm" class="lead-form" autocomplete="off">
+      <div class="lead-form-grid">
+        <label class="field"><span>Name *</span><input name="name" required placeholder="Full name" /></label>
+        <label class="field"><span>Email</span><input name="email" type="email" placeholder="name@example.com" /></label>
+        <label class="field"><span>Phone</span><input name="phone" placeholder="(404) 555-0100" /></label>
+        <label class="field"><span>Source</span><input name="source" list="leadSources" placeholder="Website, Referral, Event…" /></label>
+        <label class="field"><span>Interest</span><input name="interest" list="leadInterests" placeholder="Funding Masterclass…" /></label>
+        <label class="field"><span>Status</span>
+          <select name="status">${STATUS_OPTIONS.map((o) => `<option value="${o}" ${o === 'new' ? 'selected' : ''}>${o}</option>`).join('')}</select>
+        </label>
+        <label class="field"><span>Date added</span><input name="createdAt" type="date" value="${todayISO()}" /></label>
+        <label class="field"><span>Grant ($300 fee)</span>
+          <span class="grant-cell">
+            <input type="checkbox" class="grant-chk" name="grantAwarded" />
+            <input type="number" class="grant-amt" name="grantAmount" value="300" min="0" step="50" />
+          </span>
+        </label>
+      </div>
+      <label class="field lead-form-notes"><span>Notes</span><textarea name="notes" rows="2" placeholder="Anything useful — payment plan, business type, follow-up date…"></textarea></label>
+      <div class="lead-form-actions">
+        <button type="button" class="btn btn-ghost" data-action="toggle-add-lead">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add record</button>
+      </div>
+    </form>
+    <datalist id="leadSources"><option>Website form</option><option>Referral</option><option>Instagram</option><option>Event — Boss Court TV</option><option>Newsletter</option><option>Jotform enrollment</option><option>Phone call</option><option>Walk-in</option></datalist>
+    <datalist id="leadInterests"><option>Funding Masterclass</option><option>Business Growth Plan</option><option>Scholarship</option><option>Working Capital</option><option>Equipment Financing</option></datalist>
   </section>`;
 }
 
@@ -1132,7 +1185,28 @@ app.addEventListener('click', async (e) => {
       crm.view = d.view;
       crm.q = '';
       crm.status = 'all';
+      crm.adding = false;
       render();
+      break;
+    case 'toggle-add-lead':
+      crm.adding = !crm.adding;
+      render();
+      break;
+    case 'delete-lead': {
+      const lead = store.getLeads().find((l) => l.id === d.id);
+      if (confirm(`Delete ${lead?.name || 'this record'}? This can't be undone.`)) {
+        store.deleteLead(d.id);
+        toast('Record deleted');
+        render();
+      }
+      break;
+    }
+    case 'clear-leads':
+      if (confirm('Clear ALL leads from the CRM?\n\nThis permanently deletes every lead record and cannot be undone. (Enrolled students are not affected.)')) {
+        store.clearLeads();
+        toast('CRM cleared');
+        render();
+      }
       break;
     case 'export-csv': {
       const r = crmRows();
@@ -1260,6 +1334,30 @@ app.addEventListener('submit', async (e) => {
     const res = store.addAllowedStudent(form.email.value, form.note.value);
     toast(res.ok ? 'Email approved ✓' : res.error);
     if (res.ok) render();
+    return;
+  }
+
+  if (form.id === 'addLeadForm') {
+    const name = form.name.value.trim();
+    if (!name) {
+      toast('Enter a name');
+      return;
+    }
+    store.addLead({
+      name,
+      email: form.email.value.trim(),
+      phone: form.phone.value.trim(),
+      source: form.source.value.trim(),
+      interest: form.interest.value.trim(),
+      status: form.status.value,
+      createdAt: form.createdAt.value || todayISO(),
+      notes: form.notes.value.trim(),
+      grantAwarded: form.grantAwarded.checked,
+      grantAmount: Number(form.grantAmount.value) || 0,
+    });
+    crm.adding = false;
+    toast('Record added ✓');
+    render();
     return;
   }
 

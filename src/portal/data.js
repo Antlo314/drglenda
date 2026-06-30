@@ -208,17 +208,10 @@ export const SEED = {
     },
   },
 
-  // ---- CRM leads / prospects (captured from the marketing site & events) -----
-  leads: [
-    { id: 'l1', name: 'Renee Carter', email: 'renee.carter@example.com', phone: '(404) 555-0311', source: 'Website form', interest: 'Funding Masterclass', status: 'new', createdAt: '2026-06-26', notes: 'Asked about the payment plan option.' },
-    { id: 'l2', name: 'Marcus Bell', email: 'marcus.bell@example.com', phone: '(678) 555-0344', source: 'Instagram', interest: 'Funding Masterclass', status: 'contacted', createdAt: '2026-06-24', notes: 'Sent enrollment link; following up Monday.' },
-    { id: 'l3', name: 'Latoya Simmons', email: 'latoya.s@example.com', phone: '(470) 555-0356', source: 'Event — Boss Court TV', interest: 'Business Growth Plan', status: 'qualified', createdAt: '2026-06-20', notes: 'Already has an LLC; ready to enroll.', grantAwarded: true, grantAmount: 300 },
-    { id: 'l4', name: 'Daniel Okoro', email: 'd.okoro@example.com', phone: '(404) 555-0367', source: 'Referral', interest: 'Funding Masterclass', status: 'new', createdAt: '2026-06-27', notes: 'Referred by Maya Thompson.' },
-    { id: 'l5', name: 'Sophia Reyes', email: 'sophia.reyes@example.com', phone: '(678) 555-0389', source: 'Website form', interest: 'Scholarship', status: 'contacted', createdAt: '2026-06-22', notes: 'Sent scholarship application form.' },
-    { id: 'l6', name: 'Kevin Walsh', email: 'kevin.walsh@example.com', phone: '(770) 555-0390', source: 'Newsletter', interest: 'Funding Masterclass', status: 'lost', createdAt: '2026-06-12', notes: 'Timing not right; revisit in fall cohort.' },
-    { id: 'l7', name: 'Imani Brooks', email: 'imani.brooks@example.com', phone: '(404) 555-0402', source: 'Event — Boss Court TV', interest: 'Funding Masterclass', status: 'qualified', createdAt: '2026-06-25', notes: 'Wants to start before July 2nd deadline.' },
-    { id: 'l8', name: 'Gregory Tan', email: 'greg.tan@example.com', phone: '(470) 555-0415', source: 'Website form', interest: 'Business Growth Plan', status: 'new', createdAt: '2026-06-28', notes: 'Requested a callback.' },
-  ],
+  // ---- CRM leads / prospects -------------------------------------------------
+  // Starts empty — the admin adds records manually in the CRM (or they arrive
+  // from the website signup form and Jotform enrollment webhook).
+  leads: [],
 
   // ---- Approved-student emails (who may create an account) -------------------
   allowedStudents: [

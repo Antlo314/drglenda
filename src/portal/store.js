@@ -327,15 +327,63 @@ export function updateLeadNotes(leadId, notes) {
 }
 
 export function addLead(lead) {
+  const tempId = `l-${Date.now()}`;
+  const local = {
+    id: tempId,
+    name: lead.name || '',
+    email: lead.email || '',
+    phone: lead.phone || '',
+    source: lead.source || '',
+    interest: lead.interest || '',
+    status: lead.status || 'new',
+    createdAt: lead.createdAt || '',
+    notes: lead.notes || '',
+    grantAwarded: !!lead.grantAwarded,
+    grantAmount: Number(lead.grantAmount) || 0,
+  };
   const next = structuredClone(state);
-  const local = { id: `l-${Date.now()}`, status: 'new', ...lead };
   next.leads.push(local);
   set(next);
-  push(() =>
+
+  if (!USE_SUPABASE || !supabase) return;
+  // Insert and reconcile the temp id with the real database UUID.
+  Promise.resolve(
     supabase
       .from('leads')
-      .insert({ name: lead.name, email: lead.email, phone: lead.phone, source: lead.source, interest: lead.interest, status: local.status, notes: lead.notes })
-  );
+      .insert({
+        name: local.name, email: local.email, phone: local.phone,
+        source: local.source, interest: local.interest, status: local.status,
+        created_at: local.createdAt || null, notes: local.notes,
+        grant_awarded: local.grantAwarded, grant_amount: local.grantAmount,
+      })
+      .select()
+      .single()
+  )
+    .then(({ data, error }) => {
+      if (error) return reportError(error);
+      if (!data) return;
+      const cur = structuredClone(state);
+      const row = cur.leads.find((l) => l.id === tempId);
+      if (row) row.id = data.id;
+      set(cur);
+    })
+    .catch(reportError);
+}
+
+export function deleteLead(id) {
+  const next = structuredClone(state);
+  next.leads = next.leads.filter((l) => l.id !== id);
+  set(next);
+  push(() => supabase.from('leads').delete().eq('id', id));
+}
+
+/** Clear the entire CRM — removes every lead the admin can see. */
+export function clearLeads() {
+  const next = structuredClone(state);
+  next.leads = [];
+  set(next);
+  // A filter is required for a delete; "id is not null" matches every row.
+  push(() => supabase.from('leads').delete().not('id', 'is', null));
 }
 
 /* ---- Grant ($300 fee) tracking -------------------------------------------- */

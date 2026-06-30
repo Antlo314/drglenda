@@ -310,3 +310,47 @@ button { font-family: inherit; }
   .stat-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
   .auth-card { padding: 26px 22px; }
 }
+
+/* ---- CRM: manual add record form + row delete ----------------------------- */
+.crm-add { border: 1.5px solid var(--gold-soft); margin-bottom: 16px; }
+.lead-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.lead-form .field span { font-size: 0.78rem; }
+.lead-form .field select {
+  font-family: inherit;
+  font-size: 0.98rem;
+  padding: 12px 14px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--cream);
+  color: var(--ink);
+  width: 100%;
+}
+.lead-form .field select:focus { outline: none; border-color: var(--gold); box-shadow: var(--ring); background: #fff; }
+.lead-form .grant-cell { padding: 9px 0; }
+.lead-form-notes { margin-bottom: 16px; }
+.lead-form-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+.btn-danger { color: #b3261e; }
+.btn-danger:hover { background: #fbeae8; color: #8f1d17; }
+
+.row-del {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 6px 8px;
+  border-radius: 8px;
+  opacity: 0.55;
+  transition: opacity 0.15s, background 0.15s;
+}
+.row-del:hover { opacity: 1; background: #fbeae8; }
+.row-del:focus-visible { outline: none; box-shadow: var(--ring); opacity: 1; }
+
+.crm-hint { margin: -4px 0 16px; font-size: 0.9rem; }
+.crm-hint .link-arrow { font-size: 0.9rem; }

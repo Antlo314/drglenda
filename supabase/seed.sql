@@ -51,13 +51,6 @@ on conflict (id) do update set
   max_score=excluded.max_score, prompt=excluded.prompt, questions=excluded.questions;
 
 -- ── CRM leads ────────────────────────────────────────────────────────────────
-insert into public.leads (name, email, phone, source, interest, status, created_at, notes) values
-('Renee Carter','renee.carter@example.com','(404) 555-0311','Website form','Funding Masterclass','new','2026-06-26','Asked about the payment plan option.'),
-('Marcus Bell','marcus.bell@example.com','(678) 555-0344','Instagram','Funding Masterclass','contacted','2026-06-24','Sent enrollment link; following up Monday.'),
-('Latoya Simmons','latoya.s@example.com','(470) 555-0356','Event — Boss Court TV','Business Growth Plan','qualified','2026-06-20','Already has an LLC; ready to enroll.'),
-('Daniel Okoro','d.okoro@example.com','(404) 555-0367','Referral','Funding Masterclass','new','2026-06-27','Referred by Maya Thompson.'),
-('Sophia Reyes','sophia.reyes@example.com','(678) 555-0389','Website form','Scholarship','contacted','2026-06-22','Sent scholarship application form.'),
-('Kevin Walsh','kevin.walsh@example.com','(770) 555-0390','Newsletter','Funding Masterclass','lost','2026-06-12','Timing not right; revisit in fall cohort.'),
-('Imani Brooks','imani.brooks@example.com','(404) 555-0402','Event — Boss Court TV','Funding Masterclass','qualified','2026-06-25','Wants to start before July 2nd deadline.'),
-('Gregory Tan','greg.tan@example.com','(470) 555-0415','Website form','Business Growth Plan','new','2026-06-28','Requested a callback.')
-on conflict do nothing;
+-- The CRM starts empty. The admin adds records manually in the portal, and new
+-- leads arrive from the website signup form and the Jotform enrollment webhook.
+-- (To wipe leads from an existing database, run:  delete from public.leads;)
