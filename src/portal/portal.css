@@ -352,5 +352,22 @@ button { font-family: inherit; }
 .row-del:hover { opacity: 1; background: #fbeae8; }
 .row-del:focus-visible { outline: none; box-shadow: var(--ring); opacity: 1; }
 
+.crm-actions { white-space: nowrap; }
+.crm-actions > * + * { margin-left: 6px; }
+.row-approve {
+  border: 1.5px solid var(--line-strong);
+  background: #fff;
+  color: var(--maroon);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.row-approve:hover { background: var(--maroon); color: #fff; border-color: var(--maroon); }
+.row-approve:focus-visible { outline: none; box-shadow: var(--ring); }
+
 .crm-hint { margin: -4px 0 16px; font-size: 0.9rem; }
 .crm-hint .link-arrow { font-size: 0.9rem; }

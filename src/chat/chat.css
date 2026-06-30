@@ -296,6 +296,75 @@
   text-decoration: none;
 }
 .umof-chat-foot a:hover { text-decoration: underline; }
+.umof-chat-foot-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--maroon, #6e1423);
+  cursor: pointer;
+}
+.umof-chat-foot-link:hover { text-decoration: underline; }
+.umof-chat-foot-sep { margin: 0 6px; opacity: 0.5; }
+
+/* ----- Lead-capture card (Jaance → CRM) ----- */
+.umof-chat-leadform {
+  align-self: stretch;
+  background: #fff;
+  border: 1px solid var(--line, rgba(110, 20, 35, 0.12));
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: var(--shadow-sm, 0 2px 10px rgba(63, 10, 19, 0.06));
+}
+.umof-chat-leadform-head {
+  margin: 0 0 10px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--ink, #271a1c);
+}
+.umof-chat-leadform input {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--line-strong, rgba(110, 20, 35, 0.22));
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 0.88rem;
+  color: var(--ink, #271a1c);
+  background: var(--cream, #fbf6ef);
+}
+.umof-chat-leadform input:focus-visible {
+  outline: none;
+  border-color: var(--maroon, #6e1423);
+  box-shadow: var(--ring, 0 0 0 3px rgba(199, 154, 63, 0.45));
+}
+.umof-chat-leadform-err {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  color: #b3261e;
+}
+.umof-chat-leadform-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+.umof-chat-leadform-cancel,
+.umof-chat-leadform-send {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.umof-chat-leadform-cancel { background: transparent; color: var(--muted, #6f6266); }
+.umof-chat-leadform-cancel:hover { color: var(--ink, #271a1c); }
+.umof-chat-leadform-send { background: var(--maroon, #6e1423); color: #fff; }
+.umof-chat-leadform-send:hover:not(:disabled) { background: var(--maroon-700, #5a101c); }
+.umof-chat-leadform-send:disabled { opacity: 0.6; cursor: default; }
 
 @media (prefers-reduced-motion: reduce) {
   .umof-chat-panel,

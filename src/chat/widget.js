@@ -5,9 +5,16 @@
    and the class knowledge base. The widget itself ships no secrets.
    ------------------------------------------------------------------------- */
 import './chat.css';
+import { supabase } from '../portal/supabase.js';
+import { USE_SUPABASE } from '../portal/config.js';
 
 const CONTACT_EMAIL = 'info@umof.org';
 const ENDPOINT = '/api/chat';
+const ENROLL_URL = 'https://pci.jotform.com/form/261608272516053';
+
+// Jaance ends a message with this token when the visitor wants a follow-up; the
+// widget strips it and shows an inline "leave your details" form (→ CRM lead).
+const LEAD_MARKER = '[[LEAD_FORM]]';
 
 const GREETING =
   "Hi! I'm Jaance, the UMOF assistant \u{1F44B}. Ask me anything about The Entrepreneur's Journey: Funding Masterclass — the schedule, tuition, what you'll learn, or how to enroll.";
@@ -79,7 +86,9 @@ function buildWidget() {
         <button type="submit" class="umof-chat-send" aria-label="Send message" disabled>${icon.send}</button>
       </form>
       <div class="umof-chat-foot">
-        Can't find your answer? <a href="mailto:${CONTACT_EMAIL}">Email ${CONTACT_EMAIL}</a>
+        <button type="button" class="umof-chat-foot-link" data-leadform>Have the team reach out</button>
+        <span class="umof-chat-foot-sep">·</span>
+        <a href="mailto:${CONTACT_EMAIL}">Email ${CONTACT_EMAIL}</a>
       </div>
     </div>
     <button type="button" class="umof-chat-launcher" aria-label="Open chat with the UMOF assistant" aria-haspopup="dialog">
@@ -145,6 +154,85 @@ function initChat() {
     return t;
   }
 
+  /* ----- lead capture → CRM ------------------------------------------------ */
+  let leadCaptured = false;
+  const lastUserMessage = () => {
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].role === 'user') return history[i].content;
+    }
+    return '';
+  };
+
+  async function submitLead({ name, email, phone, note }) {
+    // Same path as the website newsletter form: anon insert (RLS allows insert
+    // only; admins read/edit). Never surface backend errors to the visitor.
+    if (USE_SUPABASE && supabase) {
+      const { error } = await supabase.from('leads').insert({
+        name,
+        email,
+        phone: phone || '',
+        source: 'Chat — Jaance',
+        interest: 'Funding Masterclass',
+        status: 'new',
+        notes: note ? `Captured via site chat. Asked: ${note}` : 'Captured via site chat (Jaance).',
+      });
+      if (error) console.error('[umof] chat lead capture failed:', error);
+    }
+  }
+
+  function showLeadForm(note) {
+    if (leadCaptured) return;
+    const existing = log.querySelector('.umof-chat-leadform');
+    if (existing) {
+      existing.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+    const card = document.createElement('div');
+    card.className = 'umof-chat-leadform';
+    card.innerHTML = `
+      <p class="umof-chat-leadform-head">Leave your details and the UMOF team will reach out.</p>
+      <form>
+        <input name="name" placeholder="Your name" autocomplete="name" required />
+        <input name="email" type="email" placeholder="Email" autocomplete="email" required />
+        <input name="phone" placeholder="Phone (optional)" autocomplete="tel" inputmode="tel" />
+        <p class="umof-chat-leadform-err" hidden>Please enter your name and a valid email.</p>
+        <div class="umof-chat-leadform-actions">
+          <button type="button" class="umof-chat-leadform-cancel">Cancel</button>
+          <button type="submit" class="umof-chat-leadform-send">Send to UMOF</button>
+        </div>
+      </form>`;
+    log.appendChild(card);
+    scrollDown();
+
+    const f = card.querySelector('form');
+    const err = card.querySelector('.umof-chat-leadform-err');
+    setTimeout(() => f.name.focus(), 30);
+    card.querySelector('.umof-chat-leadform-cancel').addEventListener('click', () => card.remove());
+
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = f.name.value.trim();
+      const email = f.email.value.trim();
+      const phone = f.phone.value.trim();
+      if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        err.hidden = false;
+        return;
+      }
+      err.hidden = true;
+      const sb = f.querySelector('.umof-chat-leadform-send');
+      sb.disabled = true;
+      sb.textContent = 'Sending…';
+      await submitLead({ name, email, phone, note });
+
+      leadCaptured = true;
+      card.remove();
+      addMessage(
+        'assistant',
+        `Thank you, ${name.split(' ')[0]}! ✅ I've shared your details with the UMOF team — they'll be in touch soon. To secure your seat now, you can register here: ${ENROLL_URL} (sign-up deadline July 2nd).`
+      );
+    });
+  }
+
   async function sendMessage(text) {
     const message = (text || '').trim();
     if (!message || busy) return;
@@ -174,8 +262,16 @@ function initChat() {
     }
 
     typing.remove();
+
+    let wantsForm = false;
+    if (reply.includes(LEAD_MARKER)) {
+      wantsForm = true;
+      reply = reply.split(LEAD_MARKER).join('').trim();
+      if (!reply) reply = 'Of course — just leave your details below and the UMOF team will reach out:';
+    }
     addMessage('assistant', reply);
     history.push({ role: 'assistant', content: reply });
+    if (wantsForm) showLeadForm(lastUserMessage());
 
     busy = false;
     setSendEnabled();
@@ -208,6 +304,10 @@ function initChat() {
 
   launcher.addEventListener('click', openPanel);
   closeBtn.addEventListener('click', closePanel);
+  root.querySelector('[data-leadform]')?.addEventListener('click', () => {
+    if (!greeted) openPanel();
+    showLeadForm(lastUserMessage());
+  });
 
   input.addEventListener('input', () => { autoGrow(); setSendEnabled(); });
   input.addEventListener('keydown', (e) => {

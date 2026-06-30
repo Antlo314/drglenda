@@ -930,6 +930,8 @@ function adminCRM() {
   const count = r.data.length;
   const isLeads = r.kind === 'leads';
   const totalLeads = store.getLeads().length;
+  // emails already on the approved-student allowlist (can create a portal account)
+  const approvedEmails = new Set(store.getAllowedStudents().map((a) => (a.email || '').toLowerCase()));
 
   const tableBody = isLeads
     ? r.data
@@ -946,7 +948,16 @@ function adminCRM() {
         ${grantCell('lead', l)}
         <td>${fmtDate(l.createdAt)}</td>
         <td><input class="notes-input" value="${esc(l.notes)}" data-action="lead-notes" data-id="${l.id}" placeholder="Add a note…" /></td>
-        <td><button class="row-del" data-action="delete-lead" data-id="${l.id}" title="Delete record" aria-label="Delete ${esc(l.name)}">🗑</button></td>
+        <td class="crm-actions">
+          ${
+            l.email
+              ? approvedEmails.has(l.email.toLowerCase())
+                ? `<span class="pill pill-done" title="This email can create a student login at the portal">Can log in</span>`
+                : `<button class="row-approve" data-action="enable-login" data-id="${l.id}" title="Let this person create their own student login at the portal">✓ Enable login</button>`
+              : ''
+          }
+          <button class="row-del" data-action="delete-lead" data-id="${l.id}" title="Delete record" aria-label="Delete ${esc(l.name)}">🗑</button>
+        </td>
       </tr>`
         )
         .join('')
@@ -1010,8 +1021,8 @@ function adminCRM() {
 
   ${
     isLeads
-      ? ''
-      : `<p class="crm-hint muted">Students appear here automatically once they create a portal account. To let someone in, approve their email under <button class="link-arrow" data-action="go" data-route="admin-access">Access →</button> To simply track a person, add them as a record under <strong>Leads</strong>.</p>`
+      ? `<p class="crm-hint muted">Set a record's status to <strong>enrolled</strong> — or click <strong>✓ Enable login</strong> — and that person can create their own student login at the portal.</p>`
+      : `<p class="crm-hint muted">Students appear here automatically once they create a portal account. To let someone in, mark their CRM record <strong>enrolled</strong> (or approve their email under <button class="link-arrow" data-action="go" data-route="admin-access">Access →</button>).</p>`
   }
 
   <section class="panel no-pad">
@@ -1030,7 +1041,7 @@ function addRecordForm() {
   <section class="panel crm-add">
     <div class="panel-head">
       <h2>Add a student or lead</h2>
-      <p class="muted">Enter everything you know — only a name is required. New records are saved under <strong>Leads</strong>; set the status to <em>enrolled</em> for current students.</p>
+      <p class="muted">Enter everything you know — only a name is required. Set the status to <em>enrolled</em> and they can create their own student login at the portal.</p>
     </div>
     <form id="addLeadForm" class="lead-form" autocomplete="off">
       <div class="lead-form-grid">
@@ -1199,6 +1210,18 @@ app.addEventListener('click', async (e) => {
         toast('Record deleted');
         render();
       }
+      break;
+    }
+    case 'enable-login': {
+      const lead = store.getLeads().find((l) => l.id === d.id);
+      if (!lead?.email) {
+        toast('Add an email to this record first');
+        break;
+      }
+      // Marking the record "enrolled" auto-adds the email to the allowlist.
+      store.updateLeadStatus(lead.id, 'enrolled');
+      toast('Login enabled ✓ — they can now create an account at /portal.html');
+      render();
       break;
     }
     case 'clear-leads':
@@ -1426,7 +1449,7 @@ app.addEventListener('change', async (e) => {
   const { action, node } = hit;
   if (action === 'lead-status') {
     store.updateLeadStatus(node.dataset.id, node.value);
-    toast('Status updated');
+    toast(node.value === 'enrolled' ? 'Marked enrolled — they can now create a login' : 'Status updated');
     render();
   } else if (action === 'lead-notes') {
     store.updateLeadNotes(node.dataset.id, node.value);

@@ -316,6 +316,11 @@ export function updateLeadStatus(leadId, status) {
   if (lead) lead.status = status;
   set(next);
   push(() => supabase.from('leads').update({ status }).eq('id', leadId));
+  // A CRM record marked "enrolled" may create a student login → add their email
+  // to the approved-student allowlist that gates portal signup.
+  if (status === 'enrolled' && lead?.email) {
+    addAllowedStudent(lead.email, `${lead.name || 'CRM'} · enrolled`);
+  }
 }
 
 export function updateLeadNotes(leadId, notes) {
@@ -344,6 +349,11 @@ export function addLead(lead) {
   const next = structuredClone(state);
   next.leads.push(local);
   set(next);
+
+  // A record added as "enrolled" may create a student login → allowlist it.
+  if (local.status === 'enrolled' && local.email) {
+    addAllowedStudent(local.email, `${local.name || 'CRM'} · enrolled`);
+  }
 
   if (!USE_SUPABASE || !supabase) return;
   // Insert and reconcile the temp id with the real database UUID.
