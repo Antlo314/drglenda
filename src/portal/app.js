@@ -10,6 +10,7 @@ import {
 } from './auth.js';
 import { downloadCSV, exportPDF, exportWord } from './export.js';
 import { USE_SUPABASE } from './config.js';
+import { CURRICULUM } from './curriculum.js';
 
 const app = document.getElementById('app');
 
@@ -141,7 +142,11 @@ function viewLogin() {
       USE_SUPABASE
         ? `<div class="auth-links">
             <button class="link-btn" data-action="auth-screen" data-screen="forgot">Forgot password?</button>
-            <span>New here? <button class="link-btn strong" data-action="auth-screen" data-screen="signup">Create an account</button></span>
+          </div>
+          <div class="auth-newcta">
+            <span class="auth-newcta-label">First time here?</span>
+            <button class="btn btn-outline btn-full" data-action="auth-screen" data-screen="signup">Create your student login</button>
+            <small>Use the email address UMOF has on file for your enrollment.</small>
           </div>`
         : `<div class="auth-demo">
         <p>Demo logins — click to try instantly:</p>
@@ -157,13 +162,13 @@ function viewLogin() {
 
 function viewSignup() {
   return authShell(`
-    <h1>Create your account</h1>
-    <p class="auth-sub">Sign up to access your class sessions, notes, and tests.</p>
+    <h1>Create your student login</h1>
+    <p class="auth-sub">Enrolled students only. Use the exact email address UMOF has on file for you — that’s how we recognize your enrollment.</p>
     <form id="signupForm" class="auth-form" novalidate>
       <label class="field"><span>Full name</span>
         <input type="text" name="name" autocomplete="name" placeholder="Jane Doe" required />
       </label>
-      <label class="field"><span>Email</span>
+      <label class="field"><span>Email <small class="field-hint">(your enrollment email)</small></span>
         <input type="email" name="email" autocomplete="email" placeholder="you@example.com" required />
       </label>
       <label class="field"><span>Password</span>
@@ -306,11 +311,74 @@ const statCard = (label, value, sub = '') => `
   </div>`;
 
 /* ===========================================================================
+   CURRICULUM (shared — students & admins)
+   ======================================================================== */
+function weekBlock(w, open) {
+  const head = `<summary>
+      <span class="wk-num">Week ${w.week}</span>
+      <span class="wk-title">${esc(w.title || 'Coming soon')}</span>
+      <span class="wk-chev" aria-hidden="true">▾</span>
+    </summary>`;
+
+  if (w.pending) {
+    return `<details class="wk wk-pending"${open ? ' open' : ''}>
+      ${head}
+      <div class="wk-body"><p class="muted">The detailed curriculum for this week will be published here.</p></div>
+    </details>`;
+  }
+
+  const section = (label, inner) => `<div class="wk-sec"><h3>${esc(label)}</h3>${inner}</div>`;
+  const list = (items, ordered) =>
+    `<${ordered ? 'ol' : 'ul'} class="wk-list${ordered ? ' wk-steps' : ''}">${items
+      .map((it) => `<li>${esc(it)}</li>`)
+      .join('')}</${ordered ? 'ol' : 'ul'}>`;
+
+  return `<details class="wk"${open ? ' open' : ''}>
+    ${head}
+    <div class="wk-body">
+      ${section('Learning Objectives', list(w.objectives, false))}
+      ${section('Step-by-Step Guide', list(w.steps, true))}
+      ${section('Assignment', `<p class="wk-callout wk-assign">${esc(w.assignment)}</p>`)}
+      ${section('Discussion Post', `<p class="wk-callout wk-discuss">“${esc(w.discussion)}”</p>`)}
+      ${section('Weekly Quiz', list(w.quiz, true))}
+    </div>
+  </details>`;
+}
+
+function curriculumView() {
+  const c = CURRICULUM;
+  return `
+  <div class="page-head"><div>
+    <span class="eyebrow">Course Syllabus</span>
+    <h1>${esc(c.title)}</h1>
+    <p class="muted">${esc(c.tagline)}</p>
+  </div></div>
+
+  <section class="panel curric-overview">
+    <div class="curric-meta">
+      <div><span class="cm-label">Course Length</span><strong>${esc(c.length)}</strong></div>
+      <div><span class="cm-label">Format</span><strong>${esc(c.format)}</strong></div>
+      <div class="cm-wide"><span class="cm-label">Learning Style</span><strong>${esc(c.learningStyle)}</strong></div>
+    </div>
+    <div class="panel-head"><h2>Course Description</h2></div>
+    <p class="curric-desc">${esc(c.description)}</p>
+  </section>
+
+  <div class="panel-head curric-weeks-head"><h2>Weekly Curriculum</h2>
+    <span class="muted">Click a week to expand</span></div>
+  <div class="curric-weeks">
+    ${c.weeks.map((w, i) => weekBlock(w, i === 0)).join('')}
+  </div>
+  <p class="curric-note muted">New weeks are released each week through the ${esc(String(parseInt(c.length, 10) || ''))}-week program.</p>`;
+}
+
+/* ===========================================================================
    STUDENT VIEWS
    ======================================================================== */
 function studentNav(user) {
   return [
     { route: 'student-home', label: 'Dashboard', icon: '▥' },
+    { route: 'curriculum', label: 'Curriculum', icon: '❖' },
     { route: 'student-sessions', label: 'Class Sessions', icon: '▶' },
     { route: 'student-tests', label: 'My Tests', icon: '✓' },
     { route: 'account', label: 'Account', icon: '⚙' },
@@ -579,6 +647,7 @@ function adminNav() {
     { route: 'admin-grading', label: 'Grading', icon: '✎', badge: pending || '' },
     { route: 'admin-crm', label: 'CRM', icon: '☎' },
     { route: 'admin-content', label: 'Sessions', icon: '▶' },
+    { route: 'curriculum', label: 'Curriculum', icon: '❖' },
     { route: 'admin-access', label: 'Access', icon: '🔑' },
     { route: 'account', label: 'Account', icon: '⚙' },
   ];
@@ -1089,10 +1158,11 @@ function render() {
   }
 
   if (user.role === 'student') {
-    const allowed = ['student-home', 'student-sessions', 'student-tests', 'session', 'quiz', 'account'];
+    const allowed = ['student-home', 'curriculum', 'student-sessions', 'student-tests', 'session', 'quiz', 'account'];
     if (!allowed.includes(route.name)) route = { name: 'student-home', params: {} };
     const views = {
       'student-home': studentHome,
+      curriculum: curriculumView,
       'student-sessions': studentSessions,
       'student-tests': studentTests,
       session: sessionDetail,
@@ -1102,7 +1172,7 @@ function render() {
     const content = (views[route.name] || studentHome)(user);
     app.innerHTML = shell(user, studentNav(user), content);
   } else {
-    const allowed = ['admin-home', 'admin-students', 'admin-student', 'admin-grading', 'grade', 'admin-crm', 'admin-content', 'admin-access', 'account'];
+    const allowed = ['admin-home', 'admin-students', 'admin-student', 'admin-grading', 'grade', 'admin-crm', 'admin-content', 'curriculum', 'admin-access', 'account'];
     if (!allowed.includes(route.name)) route = { name: 'admin-home', params: {} };
     const views = {
       'admin-home': adminHome,
@@ -1112,6 +1182,7 @@ function render() {
       grade: gradeView,
       'admin-crm': adminCRM,
       'admin-content': adminContent,
+      curriculum: curriculumView,
       'admin-access': adminAccess,
       account: () => accountView(user),
     };

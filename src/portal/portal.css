@@ -94,6 +94,10 @@ button { font-family: inherit; }
 .auth-demo small { display: block; margin-top: 10px; color: var(--muted); font-size: 0.75rem; }
 .auth-back { display: inline-block; margin-top: 20px; color: var(--muted); font-size: 0.85rem; }
 .auth-back:hover { color: var(--maroon); }
+.auth-newcta { margin-top: 20px; padding-top: 18px; border-top: 1px dashed var(--line-strong); text-align: center; }
+.auth-newcta-label { display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 10px; }
+.auth-newcta small { display: block; margin-top: 9px; color: var(--muted); font-size: 0.76rem; }
+.field-hint { font-weight: 400; color: var(--muted); font-size: 0.78rem; }
 
 /* =============== SHELL =============== */
 .portal-shell { display: grid; grid-template-columns: 250px 1fr; min-height: 100vh; }
@@ -371,3 +375,67 @@ button { font-family: inherit; }
 
 .crm-hint { margin: -4px 0 16px; font-size: 0.9rem; }
 .crm-hint .link-arrow { font-size: 0.9rem; }
+
+/* =============== CURRICULUM (syllabus) =============== */
+.curric-overview { border-top: 3px solid var(--gold); }
+.curric-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 20px;
+  padding: 4px 0 18px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+.curric-meta > div { display: flex; flex-direction: column; gap: 3px; }
+.curric-meta .cm-wide { grid-column: 1 / -1; }
+.cm-label { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold); }
+.curric-meta strong { color: var(--ink); font-weight: 600; font-size: 0.95rem; }
+.curric-desc { color: var(--ink); max-width: 72ch; }
+
+.curric-weeks-head { margin: 26px 0 14px; }
+.curric-weeks-head span { font-size: 0.85rem; }
+.curric-weeks { display: flex; flex-direction: column; gap: 12px; }
+
+.wk { background: #fff; border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); overflow: hidden; }
+.wk[open] { box-shadow: var(--shadow); }
+.wk > summary {
+  display: flex; align-items: center; gap: 14px;
+  padding: 16px 20px; cursor: pointer; list-style: none;
+  transition: background 0.15s;
+}
+.wk > summary::-webkit-details-marker { display: none; }
+.wk > summary:hover { background: var(--cream); }
+.wk > summary:focus-visible { outline: none; box-shadow: var(--ring); }
+.wk-num {
+  flex: none; font-family: var(--font-head); font-weight: 700; font-size: 0.78rem;
+  letter-spacing: 0.04em; text-transform: uppercase; color: #fff; background: var(--maroon);
+  padding: 5px 11px; border-radius: 999px;
+}
+.wk-title { flex: 1; font-family: var(--font-head); font-size: 1.05rem; color: var(--maroon-900); }
+.wk-pending .wk-title { color: var(--muted); font-style: italic; font-family: var(--font-body); font-size: 0.95rem; }
+.wk-chev { flex: none; color: var(--gold); font-size: 0.9rem; transition: transform 0.2s; }
+.wk[open] .wk-chev { transform: rotate(180deg); }
+
+.wk-body { padding: 4px 20px 20px; border-top: 1px solid var(--line); }
+.wk-sec { padding-top: 16px; }
+.wk-sec h3 { font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); margin-bottom: 8px; }
+.wk-list { display: flex; flex-direction: column; gap: 8px; list-style: none; }
+.wk-list li { position: relative; padding-left: 26px; color: var(--ink); }
+.wk-list li::before { content: "✓"; position: absolute; left: 0; top: 0; color: var(--gold); font-weight: 700; }
+ol.wk-steps { counter-reset: step; }
+ol.wk-steps li::before { content: counter(step); counter-increment: step;
+  font-size: 0.7rem; font-weight: 700; color: var(--maroon); top: 1px;
+  width: 18px; height: 18px; border-radius: 999px; background: var(--cream-2);
+  display: grid; place-items: center; }
+.wk-callout {
+  padding: 12px 14px; border-radius: var(--radius-sm);
+  background: var(--cream); border-left: 3px solid var(--gold); color: var(--ink);
+}
+.wk-discuss { font-style: italic; border-left-color: var(--maroon); }
+.curric-note { margin-top: 14px; font-size: 0.88rem; text-align: center; }
+
+@media (max-width: 540px) {
+  .curric-meta { grid-template-columns: 1fr; }
+  .wk > summary { padding: 14px 16px; gap: 10px; }
+  .wk-body { padding: 4px 16px 16px; }
+}
