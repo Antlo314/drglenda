@@ -98,6 +98,7 @@ const mapSession = (r) => {
     id: r.id, week: r.week, title: r.title, date: d10(r.date),
     durationMin: r.duration_min, thumb: r.thumb, videoUrl: r.video_url,
     summary: r.summary, notes: r.notes || [],
+    meetUrl: r.meet_url || '', liveAt: r.live_at || '',
     isFile,
     storagePath: isFile ? r.video_url.slice(STORAGE_PREFIX.length) : null,
     playUrl: '', // filled with a signed URL during hydrate
@@ -527,6 +528,21 @@ export async function uploadSessionVideo(sessionId, file) {
   }
   set(next);
   return { ok: true };
+}
+
+/* ===========================================================================
+   LIVE CLASS — per-session Google Meet link + scheduled time
+   ======================================================================== */
+export function setSessionMeet(sessionId, { meetUrl, liveAt }) {
+  const next = structuredClone(state);
+  const s = next.sessions.find((x) => x.id === sessionId);
+  if (!s) return;
+  if (meetUrl !== undefined) s.meetUrl = meetUrl.trim();
+  if (liveAt !== undefined) s.liveAt = liveAt;
+  set(next);
+  push(() =>
+    supabase.from('sessions').update({ meet_url: s.meetUrl || null, live_at: s.liveAt || null }).eq('id', sessionId)
+  );
 }
 
 /* ===========================================================================

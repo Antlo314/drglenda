@@ -467,3 +467,13 @@ ol.wk-steps li::before { content: counter(step); counter-increment: step;
 .mat-admin-row .mat-title strong { white-space: normal; }
 .mat-empty { font-size: 0.85rem; margin: 2px 0; }
 .upload-btn.sm { padding: 5px 11px; }
+
+/* =============== LIVE CLASS (Google Meet) =============== */
+.live-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; border-left: 4px solid var(--gold); }
+.live-card-main { display: flex; align-items: center; gap: 14px; }
+.live-card h2 { font-size: 1.05rem; }
+.live-badge { color: #d13438; font-size: 0.85rem; line-height: 1; animation: livepulse 1.6s ease-in-out infinite; }
+@keyframes livepulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+.meet-cell { display: flex; flex-direction: column; gap: 6px; min-width: 190px; }
+.meet-input, .meet-time { font-family: inherit; font-size: 0.82rem; padding: 7px 9px; border: 1.5px solid var(--line-strong); border-radius: 8px; background: var(--cream); color: var(--ink); width: 100%; }
+.meet-input:focus, .meet-time:focus { outline: none; border-color: var(--gold); box-shadow: var(--ring); background: #fff; }

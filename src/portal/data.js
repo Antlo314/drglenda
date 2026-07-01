@@ -38,6 +38,7 @@ export const SEED = {
       id: 's1', week: 1, title: 'Foundations of Funding Readiness',
       date: '2026-07-06', durationMin: 58, thumb: '/assets/edu-1.png',
       videoUrl: 'https://www.youtube.com/embed/ScMzIvxBSi4',
+      meetUrl: 'https://meet.google.com/lookup/umof-funding-week1', liveAt: '2026-07-06T18:00',
       summary: 'What lenders and funders actually look for, and how to assess where your business stands today.',
       notes: [
         'The 5 C’s of credit: Character, Capacity, Capital, Collateral, Conditions.',

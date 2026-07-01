@@ -28,6 +28,13 @@ const fmtDate = (iso) => {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
+const fmtDateTime = (v) => {
+  if (!v) return '';
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return String(v);
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+};
+
 const initials = (name) =>
   name.split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase();
 
@@ -583,6 +590,21 @@ function sessionDetail(user) {
     <h1>${esc(sx.title)}</h1>
   </div></div>
 
+  ${
+    sx.meetUrl
+      ? `<section class="panel live-card">
+          <div class="live-card-main">
+            <span class="live-badge" aria-hidden="true">●</span>
+            <div>
+              <h2>Live class on Google Meet</h2>
+              <p class="muted">${sx.liveAt ? `Scheduled for ${esc(fmtDateTime(sx.liveAt))}` : 'Opens in a new tab'} · joins in a separate tab</p>
+            </div>
+          </div>
+          <a class="btn btn-primary" href="${esc(sx.meetUrl)}" target="_blank" rel="noopener">Join Live Class ↗</a>
+        </section>`
+      : ''
+  }
+
   <div class="video-frame">
     ${
       sx.isFile
@@ -971,7 +993,7 @@ function adminContent() {
   <div class="page-head"><div><h1>Class Sessions</h1><p class="muted">Recordings, notes &amp; linked tests · ${sessions.length} published</p></div></div>
   <section class="panel">
     <table class="data-table">
-      <thead><tr><th>Wk</th><th>Title</th><th>Date</th><th>Video</th><th>Tests</th></tr></thead>
+      <thead><tr><th>Wk</th><th>Title</th><th>Date</th><th>Video</th><th>Tests</th><th>Live class (Meet)</th></tr></thead>
       <tbody>
         ${sessions
           .map((x) => {
@@ -987,7 +1009,11 @@ function adminContent() {
             return `<tr><td>${x.week}</td><td><strong>${esc(x.title)}</strong><br><small class="muted">${esc(x.summary)}</small></td>
               <td>${fmtDate(x.date)} · ${x.durationMin} min</td>
               <td><div class="video-cell">${source}${uploader}</div></td>
-              <td>${qz.length ? qz.map((q) => `<span class="tag">${esc(q.title)}</span>`).join('') : '—'}</td></tr>`;
+              <td>${qz.length ? qz.map((q) => `<span class="tag">${esc(q.title)}</span>`).join('') : '—'}</td>
+              <td><div class="meet-cell">
+                <input class="meet-input" data-action="session-meet" data-id="${x.id}" value="${esc(x.meetUrl || '')}" placeholder="Paste Google Meet link" />
+                <input type="datetime-local" class="meet-time" data-action="session-liveat" data-id="${x.id}" value="${esc(x.liveAt || '')}" />
+              </div></td></tr>`;
           })
           .join('')}
       </tbody>
@@ -997,6 +1023,7 @@ function adminContent() {
         ? 'Upload a recording (MP4) to host it privately in Supabase Storage — students stream it via a secure, expiring link. Or keep using YouTube/Vimeo embeds.'
         : 'Connect Supabase (see SUPABASE_SETUP.md) to upload and host videos here. In demo mode, sessions use embedded sample videos.'
     }</p>
+    <p class="hint">Live class: paste a Google Meet link (and optional date/time) for a week — enrolled students get a “Join Live Class” button on that session. Tip: use a link created in Google Calendar so you get proper host controls.</p>
   </section>
 
   ${adminMaterialsPanel()}`;
@@ -1692,6 +1719,12 @@ app.addEventListener('change', async (e) => {
     const res = await store.uploadMaterial(node.dataset.session, file, kind, file.name.replace(/\.[^.]+$/, ''));
     toast(res.ok ? 'Material uploaded ✓' : `Upload failed: ${res.error}`);
     render();
+  } else if (action === 'session-meet') {
+    store.setSessionMeet(node.dataset.id, { meetUrl: node.value });
+    toast(node.value.trim() ? 'Meet link saved ✓' : 'Meet link cleared');
+  } else if (action === 'session-liveat') {
+    store.setSessionMeet(node.dataset.id, { liveAt: node.value });
+    toast('Class time saved ✓');
   }
 });
 

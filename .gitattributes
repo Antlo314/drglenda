@@ -1,0 +1,12 @@
+# Treat binary assets as binary so Git never applies line-ending conversion.
+# (The sample PDF is pure ASCII, so Git would otherwise mistake it for text.)
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.webp binary
+*.gif  binary
+*.mp4  binary
+*.webm binary
+*.mov  binary
+*.ico  binary
