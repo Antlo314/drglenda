@@ -66,7 +66,7 @@ function toast(msg) {
 
 /* ---- app state ------------------------------------------------------------ */
 let route = { name: null, params: {} };
-let crm = { view: 'leads', q: '', status: 'all', adding: false, editingId: null };
+let crm = { view: 'leads', q: '', status: 'all', adding: false, editingId: null, notesOpen: new Set() };
 
 // logged-out auth screens
 let authScreen = 'login'; // 'login' | 'signup' | 'forgot'
@@ -1145,10 +1145,16 @@ function adminCRM() {
   // emails already on the approved-student allowlist (can create a portal account)
   const approvedEmails = new Set(store.getAllowedStudents().map((a) => (a.email || '').toLowerCase()));
 
+  // an extra (blank) header for the per-row action buttons on the leads table
+  const headCols = isLeads ? [...r.columns, ''] : r.columns;
+  const colCount = headCols.length;
+
   const tableBody = isLeads
     ? r.data
-        .map(
-          (l) => `<tr>
+        .map((l) => {
+          const open = crm.notesOpen.has(l.id);
+          const hasNote = !!(l.notes && l.notes.trim());
+          return `<tr>
         <td><strong>${esc(l.name)}</strong></td>
         <td><a href="mailto:${esc(l.email)}">${esc(l.email)}</a></td>
         <td>${esc(l.phone)}</td>
@@ -1159,7 +1165,11 @@ function adminCRM() {
         </select></td>
         ${grantCell('lead', l)}
         <td>${fmtDate(l.createdAt)}</td>
-        <td><input class="notes-input" value="${esc(l.notes)}" data-action="lead-notes" data-id="${l.id}" placeholder="Add a note…" /></td>
+        <td class="notes-cell">
+          <button class="notes-toggle ${hasNote ? 'has-note' : ''}" data-action="toggle-notes" data-id="${l.id}" aria-expanded="${open}" title="${open ? 'Hide note' : hasNote ? 'View / edit note' : 'Add a note'}">
+            <span class="notes-ico">${hasNote ? '🗒' : '＋'}</span><span class="notes-lbl">${open ? 'Hide' : hasNote ? 'Note' : 'Add'}</span>
+          </button>
+        </td>
         <td class="crm-actions">
           <button class="row-edit" data-action="edit-lead" data-id="${l.id}" title="Edit record" aria-label="Edit ${esc(l.name)}">✎ Edit</button>
           ${
@@ -1171,8 +1181,19 @@ function adminCRM() {
           }
           <button class="row-del" data-action="delete-lead" data-id="${l.id}" title="Delete record" aria-label="Delete ${esc(l.name)}">🗑</button>
         </td>
+      </tr>${
+        open
+          ? `<tr class="notes-row">
+        <td colspan="${colCount}">
+          <div class="notes-panel">
+            <label class="notes-panel-label" for="note-${l.id}">Notes — ${esc(l.name)}</label>
+            <textarea id="note-${l.id}" class="notes-area" data-action="lead-notes" data-id="${l.id}" rows="3" placeholder="Add a note — payment plan, follow-up date, business type, context…">${esc(l.notes)}</textarea>
+          </div>
+        </td>
       </tr>`
-        )
+          : ''
+      }`;
+        })
         .join('')
     : r.data
         .map(
@@ -1190,10 +1211,6 @@ function adminCRM() {
       </tr>`
         )
         .join('');
-
-  // an extra (blank) header for the per-row delete button on the leads table
-  const headCols = isLeads ? [...r.columns, ''] : r.columns;
-  const colCount = headCols.length;
 
   // grant summary for the current view
   const people = isLeads ? r.data : r.data.map((d) => d.s);
@@ -1431,8 +1448,16 @@ app.addEventListener('click', async (e) => {
       crm.status = 'all';
       crm.adding = false;
       crm.editingId = null;
+      crm.notesOpen.clear();
       render();
       break;
+    case 'toggle-notes': {
+      const opening = !crm.notesOpen.has(d.id);
+      opening ? crm.notesOpen.add(d.id) : crm.notesOpen.delete(d.id);
+      render();
+      if (opening) document.getElementById(`note-${d.id}`)?.focus();
+      break;
+    }
     case 'toggle-add-lead':
       crm.adding = !crm.adding;
       crm.editingId = null;
