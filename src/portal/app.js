@@ -373,6 +373,108 @@ function curriculumView() {
 }
 
 /* ===========================================================================
+   CLASS MATERIALS (shared render helpers)
+   ======================================================================== */
+function materialMeta(kind) {
+  return {
+    pdf: { icon: '📄', label: 'PDF' },
+    image: { icon: '🖼️', label: 'Image' },
+    video: { icon: '🎬', label: 'Video' },
+    link: { icon: '🔗', label: 'Link' },
+  }[kind] || { icon: '📎', label: 'File' };
+}
+
+/** A student-facing material card with an inline viewer + open/download. */
+function materialCard(m) {
+  const src = store.materialSrc(m);
+  const meta = materialMeta(m.kind);
+  let viewer = '';
+  if (src) {
+    if (m.kind === 'image') viewer = `<img class="mat-img" src="${esc(src)}" alt="${esc(m.title)}" loading="lazy" />`;
+    else if (m.kind === 'video') viewer = `<video class="mat-video" src="${esc(src)}" controls playsinline preload="metadata"></video>`;
+    else if (m.kind === 'pdf') viewer = `<iframe class="mat-pdf" src="${esc(src)}" title="${esc(m.title)}" loading="lazy"></iframe>`;
+  }
+  const open = src
+    ? `<a class="btn btn-light btn-sm" href="${esc(src)}" target="_blank" rel="noopener">${m.kind === 'link' ? 'Open link ↗' : 'Open ↗'}</a>`
+    : '';
+  const download = src && m.kind !== 'link'
+    ? `<a class="btn btn-ghost btn-sm" href="${esc(src)}" download>⬇ Download</a>`
+    : '';
+  return `<div class="mat-card">
+    <div class="mat-head">
+      <span class="mat-ico" aria-hidden="true">${meta.icon}</span>
+      <span class="mat-title"><strong>${esc(m.title)}</strong><small>${meta.label}</small></span>
+      <span class="mat-actions">${open}${download}</span>
+    </div>
+    ${viewer ? `<div class="mat-viewer">${viewer}</div>` : ''}
+  </div>`;
+}
+
+/** Admin panel: add link resources, upload files, and manage materials per session. */
+function adminMaterialsPanel() {
+  const sessions = store.getSessions();
+  const materials = store.getAllMaterials();
+  return `
+  <section class="panel">
+    <div class="panel-head"><h2>Class materials</h2>
+      <span class="muted">${materials.length} item${materials.length === 1 ? '' : 's'} · what students view &amp; download</span></div>
+
+    <form id="addMaterialForm" class="mat-add-form">
+      <select name="sessionId" required>
+        ${sessions.map((s) => `<option value="${s.id}">W${s.week} · ${esc(s.title)}</option>`).join('')}
+      </select>
+      <input name="title" placeholder="Title (e.g. Week 1 Worksheet)" required />
+      <input name="url" type="url" placeholder="https://link-to-resource" required />
+      <button type="submit" class="btn btn-primary btn-sm">＋ Add link</button>
+    </form>
+
+    <div class="mat-groups">
+      ${sessions
+        .map((s) => {
+          const mats = materials.filter((m) => m.sessionId === s.id);
+          return `<div class="mat-group">
+          <div class="mat-group-head">
+            <strong>W${s.week} · ${esc(s.title)}</strong>
+            ${
+              USE_SUPABASE
+                ? `<label class="upload-btn sm">＋ Upload file
+                     <input type="file" accept="application/pdf,image/*,video/*" data-action="material-file" data-session="${s.id}" hidden />
+                   </label>`
+                : ''
+            }
+          </div>
+          ${
+            mats.length
+              ? `<div class="mat-admin-list">${mats
+                  .map((m) => {
+                    const meta = materialMeta(m.kind);
+                    const src = store.materialSrc(m);
+                    return `<div class="mat-admin-row">
+                    <span class="mat-ico" aria-hidden="true">${meta.icon}</span>
+                    <span class="mat-title"><strong>${esc(m.title)}</strong><small>${meta.label}</small></span>
+                    <span class="mat-actions">
+                      ${src ? `<a class="btn btn-ghost btn-sm" href="${esc(src)}" target="_blank" rel="noopener">Open ↗</a>` : ''}
+                      <button class="row-del" data-action="delete-material" data-id="${esc(m.id)}" title="Delete material" aria-label="Delete ${esc(m.title)}">🗑</button>
+                    </span>
+                  </div>`;
+                  })
+                  .join('')}</div>`
+              : `<p class="muted mat-empty">No materials yet.</p>`
+          }
+        </div>`;
+        })
+        .join('')}
+    </div>
+
+    <p class="hint">${
+      USE_SUPABASE
+        ? 'Add links to any resource, or upload PDFs, images, and videos — files are stored privately and streamed to logged-in students via secure, expiring links. This is your reusable, resell-ready content.'
+        : 'Add link resources here (saved locally in demo mode). Connect Supabase to upload and privately host PDF, image, and video files.'
+    }</p>
+  </section>`;
+}
+
+/* ===========================================================================
    STUDENT VIEWS
    ======================================================================== */
 function studentNav(user) {
@@ -472,6 +574,7 @@ function sessionDetail(user) {
   const prog = store.getProgress(user.id);
   const done = prog.completed.includes(sx.id);
   const quizzes = store.getQuizzesForSession(sx.id);
+  const materials = store.getMaterialsForSession(sx.id);
 
   return `
   <button class="back-link" data-action="go" data-route="student-sessions">← All sessions</button>
@@ -513,6 +616,15 @@ function sessionDetail(user) {
     <ul class="notes-list">
       ${sx.notes.map((n) => `<li>${esc(n)}</li>`).join('')}
     </ul>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Class materials</h2></div>
+    ${
+      materials.length
+        ? `<div class="mat-list">${materials.map((m) => materialCard(m)).join('')}</div>`
+        : `<p class="muted">No materials have been posted for this session yet.</p>`
+    }
   </section>`;
 }
 
@@ -885,7 +997,9 @@ function adminContent() {
         ? 'Upload a recording (MP4) to host it privately in Supabase Storage — students stream it via a secure, expiring link. Or keep using YouTube/Vimeo embeds.'
         : 'Connect Supabase (see SUPABASE_SETUP.md) to upload and host videos here. In demo mode, sessions use embedded sample videos.'
     }</p>
-  </section>`;
+  </section>
+
+  ${adminMaterialsPanel()}`;
 }
 
 /* ---- Access: approved-student allowlist ----------------------------------- */
@@ -1246,6 +1360,15 @@ app.addEventListener('click', async (e) => {
       toast('Removed from approved list');
       render();
       break;
+    case 'delete-material': {
+      const mat = store.getAllMaterials().find((m) => m.id === d.id);
+      if (confirm(`Delete “${mat?.title || 'this material'}”? This can't be undone.`)) {
+        store.deleteMaterial(d.id);
+        toast('Material deleted');
+        render();
+      }
+      break;
+    }
     case 'toggle-complete': {
       const user = currentUser();
       const prog = store.getProgress(user.id);
@@ -1431,6 +1554,20 @@ app.addEventListener('submit', async (e) => {
     return;
   }
 
+  if (form.id === 'addMaterialForm') {
+    const title = form.title.value.trim();
+    const url = form.url.value.trim();
+    if (!title || !url) {
+      toast('Add a title and a link');
+      return;
+    }
+    store.addMaterialLink(form.sessionId.value, { kind: 'link', title, url });
+    toast('Link added ✓');
+    form.reset();
+    render();
+    return;
+  }
+
   if (form.id === 'addLeadForm') {
     const name = form.name.value.trim();
     if (!name) {
@@ -1545,6 +1682,15 @@ app.addEventListener('change', async (e) => {
     toast('Uploading video… this can take a moment.');
     const res = await store.uploadSessionVideo(node.dataset.session, file);
     toast(res.ok ? 'Video uploaded ✓' : `Upload failed: ${res.error}`);
+    render();
+  } else if (action === 'material-file') {
+    const file = node.files && node.files[0];
+    if (!file) return;
+    const t = file.type || '';
+    const kind = t.startsWith('image/') ? 'image' : t.startsWith('video/') ? 'video' : 'pdf';
+    toast('Uploading material… this can take a moment.');
+    const res = await store.uploadMaterial(node.dataset.session, file, kind, file.name.replace(/\.[^.]+$/, ''));
+    toast(res.ok ? 'Material uploaded ✓' : `Upload failed: ${res.error}`);
     render();
   }
 });

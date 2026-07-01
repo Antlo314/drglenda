@@ -24,7 +24,7 @@ let errorHandler = null;
 let state = USE_SUPABASE ? emptyState() : loadLocal();
 
 function emptyState() {
-  return { users: [], sessions: [], quizzes: [], progress: {}, leads: [], allowedStudents: [] };
+  return { users: [], sessions: [], quizzes: [], progress: {}, leads: [], allowedStudents: [], materials: [] };
 }
 function loadLocal() {
   try {
@@ -107,6 +107,18 @@ const mapQuiz = (r) => ({
   id: r.id, sessionId: r.session_id, type: r.type, title: r.title,
   maxScore: r.max_score, prompt: r.prompt, questions: r.questions || [],
 });
+// A class material's `url` is either a normal URL (link/external) or a
+// 'storage:'-prefixed object path in the session-media bucket (a private file).
+const mapMaterial = (r) => {
+  const isFile = typeof r.url === 'string' && r.url.startsWith(STORAGE_PREFIX);
+  return {
+    id: r.id, sessionId: r.session_id, kind: r.kind, title: r.title,
+    url: isFile ? '' : r.url,
+    isFile,
+    storagePath: isFile ? r.url.slice(STORAGE_PREFIX.length) : null,
+    playUrl: '', // filled with a signed URL during hydrate
+  };
+};
 const mapProfile = (r) => ({
   id: r.id, role: r.role, name: r.name, email: r.email, phone: r.phone,
   title: r.title, cohort: r.cohort, enrolled: d10(r.enrolled), plan: r.plan,
@@ -143,6 +155,19 @@ export async function hydrate(user) {
       .createSignedUrls(fileSessions.map((s) => s.storagePath), 7200); // 2h
     (signed || []).forEach((sg, i) => {
       if (!sg.error) fileSessions[i].playUrl = sg.signedUrl;
+    });
+  }
+
+  // class materials (resell-ready content library) — visible to all authenticated
+  const { data: materials } = await supabase.from('class_materials').select('*');
+  next.materials = (materials || []).map(mapMaterial);
+  const fileMaterials = next.materials.filter((m) => m.isFile && m.storagePath);
+  if (fileMaterials.length) {
+    const { data: signedM } = await supabase.storage
+      .from('session-media')
+      .createSignedUrls(fileMaterials.map((m) => m.storagePath), 7200); // 2h
+    (signedM || []).forEach((sg, i) => {
+      if (!sg.error) fileMaterials[i].playUrl = sg.signedUrl;
     });
   }
 
@@ -502,4 +527,82 @@ export async function uploadSessionVideo(sessionId, file) {
   }
   set(next);
   return { ok: true };
+}
+
+/* ===========================================================================
+   CLASS MATERIALS — per-session content library (the resell-ready assets)
+   ======================================================================== */
+export const getMaterialsForSession = (sid) =>
+  (state.materials || []).filter((m) => m.sessionId === sid);
+export const getAllMaterials = () => state.materials || [];
+
+/** The playable/openable source for a material (signed file URL or plain URL). */
+export const materialSrc = (m) => (m.isFile ? m.playUrl : m.url);
+
+/** Add a link (or any external-URL) material. Works in demo + Supabase mode. */
+export function addMaterialLink(sessionId, { kind, title, url }) {
+  const tempId = `m-${Date.now()}`;
+  const local = { id: tempId, sessionId, kind: kind || 'link', title: (title || '').trim() || 'Untitled', url: (url || '').trim() };
+  const next = structuredClone(state);
+  (next.materials ??= []).push(local);
+  set(next);
+
+  if (!USE_SUPABASE || !supabase) return { ok: true };
+  Promise.resolve(
+    supabase
+      .from('class_materials')
+      .insert({ session_id: sessionId, kind: local.kind, title: local.title, url: local.url })
+      .select()
+      .single()
+  )
+    .then(({ data, error }) => {
+      if (error) return reportError(error);
+      if (!data) return;
+      const cur = structuredClone(state);
+      const row = cur.materials.find((m) => m.id === tempId);
+      if (row) row.id = data.id;
+      set(cur);
+    })
+    .catch(reportError);
+  return { ok: true };
+}
+
+/** Upload a file material (PDF/image/video) into private Storage (Supabase mode). */
+export async function uploadMaterial(sessionId, file, kind, title) {
+  if (!USE_SUPABASE) return { ok: false, error: 'Connect Supabase to upload files.' };
+  const safe = file.name.replace(/[^\w.\-]+/g, '_');
+  const path = `${sessionId}/materials/${Date.now()}-${safe}`;
+
+  const up = await supabase.storage
+    .from('session-media')
+    .upload(path, file, { upsert: true, contentType: file.type || undefined });
+  if (up.error) return { ok: false, error: up.error.message };
+
+  const stored = STORAGE_PREFIX + path;
+  const ins = await supabase
+    .from('class_materials')
+    .insert({ session_id: sessionId, kind, title: (title || '').trim() || file.name, url: stored })
+    .select()
+    .single();
+  if (ins.error) return { ok: false, error: ins.error.message };
+
+  const { data: signed } = await supabase.storage.from('session-media').createSignedUrl(path, 7200);
+  const next = structuredClone(state);
+  (next.materials ??= []).push({
+    id: ins.data.id, sessionId, kind, title: (title || '').trim() || file.name,
+    url: '', isFile: true, storagePath: path, playUrl: signed?.signedUrl || '',
+  });
+  set(next);
+  return { ok: true };
+}
+
+export function deleteMaterial(id) {
+  const m = (state.materials || []).find((x) => x.id === id);
+  const next = structuredClone(state);
+  next.materials = (next.materials || []).filter((x) => x.id !== id);
+  set(next);
+  push(() => supabase.from('class_materials').delete().eq('id', id));
+  if (m && m.isFile && m.storagePath) {
+    push(() => supabase.storage.from('session-media').remove([m.storagePath]));
+  }
 }

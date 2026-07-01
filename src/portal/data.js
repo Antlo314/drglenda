@@ -218,4 +218,16 @@ export const SEED = {
     { email: 'jordan@umof.org', note: 'Summer 2026 cohort' },
     { email: 'maya@umof.org', note: 'Summer 2026 cohort' },
   ],
+
+  // ---- Class materials (the resell-ready content library) --------------------
+  // Per-session resources students view/download inside the login. kind:
+  //   'pdf' | 'image' | 'video' -> hosted file (in prod: private Storage + signed URL)
+  //   'link'                    -> an external URL (no file)
+  materials: [
+    { id: 'm1', sessionId: 's1', kind: 'pdf',   title: 'Funding Readiness Worksheet', url: '/assets/week1-worksheet.pdf' },
+    { id: 'm2', sessionId: 's1', kind: 'image', title: 'The 5 C’s of Credit (infographic)', url: '/assets/edu-1.png' },
+    { id: 'm3', sessionId: 's1', kind: 'link',  title: 'SBA — Fund your business (reference)', url: 'https://www.sba.gov/funding-programs' },
+    { id: 'm4', sessionId: 's4', kind: 'video', title: 'Business plan walkthrough (recording)', url: '/umof-class.mp4' },
+    { id: 'm5', sessionId: 's4', kind: 'pdf',   title: 'One-Page Business Plan template', url: '/assets/week1-worksheet.pdf' },
+  ],
 };
