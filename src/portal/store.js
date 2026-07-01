@@ -406,6 +406,39 @@ export function addLead(lead) {
     .catch(reportError);
 }
 
+/** Update every editable field of a lead at once (from the CRM edit form). */
+export function updateLead(id, fields) {
+  const next = structuredClone(state);
+  const lead = next.leads.find((l) => l.id === id);
+  if (!lead) return;
+  lead.name = fields.name ?? lead.name;
+  lead.email = fields.email ?? lead.email;
+  lead.phone = fields.phone ?? lead.phone;
+  lead.source = fields.source ?? lead.source;
+  lead.interest = fields.interest ?? lead.interest;
+  lead.status = fields.status ?? lead.status;
+  lead.createdAt = fields.createdAt ?? lead.createdAt;
+  lead.notes = fields.notes ?? lead.notes;
+  lead.grantAwarded = fields.grantAwarded ?? lead.grantAwarded;
+  lead.grantAmount = Number(fields.grantAmount ?? lead.grantAmount) || 0;
+  set(next);
+  push(() =>
+    supabase
+      .from('leads')
+      .update({
+        name: lead.name, email: lead.email, phone: lead.phone,
+        source: lead.source, interest: lead.interest, status: lead.status,
+        created_at: lead.createdAt || null, notes: lead.notes,
+        grant_awarded: lead.grantAwarded, grant_amount: lead.grantAmount,
+      })
+      .eq('id', id)
+  );
+  // Editing a record to "enrolled" (with an email) lets them create a login.
+  if (lead.status === 'enrolled' && lead.email) {
+    addAllowedStudent(lead.email, `${lead.name || 'CRM'} · enrolled`);
+  }
+}
+
 export function deleteLead(id) {
   const next = structuredClone(state);
   next.leads = next.leads.filter((l) => l.id !== id);

@@ -66,7 +66,7 @@ function toast(msg) {
 
 /* ---- app state ------------------------------------------------------------ */
 let route = { name: null, params: {} };
-let crm = { view: 'leads', q: '', status: 'all', adding: false };
+let crm = { view: 'leads', q: '', status: 'all', adding: false, editingId: null };
 
 // logged-out auth screens
 let authScreen = 'login'; // 'login' | 'signup' | 'forgot'
@@ -1140,6 +1140,8 @@ function adminCRM() {
   const count = r.data.length;
   const isLeads = r.kind === 'leads';
   const totalLeads = store.getLeads().length;
+  // the lead currently open in the edit form (if any); null if it was deleted
+  const editingLead = isLeads && crm.editingId ? store.getLeads().find((l) => l.id === crm.editingId) || null : null;
   // emails already on the approved-student allowlist (can create a portal account)
   const approvedEmails = new Set(store.getAllowedStudents().map((a) => (a.email || '').toLowerCase()));
 
@@ -1159,6 +1161,7 @@ function adminCRM() {
         <td>${fmtDate(l.createdAt)}</td>
         <td><input class="notes-input" value="${esc(l.notes)}" data-action="lead-notes" data-id="${l.id}" placeholder="Add a note…" /></td>
         <td class="crm-actions">
+          <button class="row-edit" data-action="edit-lead" data-id="${l.id}" title="Edit record" aria-label="Edit ${esc(l.name)}">✎ Edit</button>
           ${
             l.email
               ? approvedEmails.has(l.email.toLowerCase())
@@ -1208,7 +1211,7 @@ function adminCRM() {
     </div>
   </div>
 
-  ${isLeads && crm.adding ? addRecordForm() : ''}
+  ${editingLead ? recordForm(editingLead) : isLeads && crm.adding ? recordForm() : ''}
 
   <div class="crm-controls">
     <div class="seg">
@@ -1245,36 +1248,45 @@ function adminCRM() {
   </section>`;
 }
 
-/** The manual "add a student / lead" form — every CRM field is available here. */
-function addRecordForm() {
+/**
+ * The manual add/edit form — every CRM field is available here.
+ * Pass a `lead` to prefill for editing; omit it for a blank "add record" form.
+ */
+function recordForm(lead) {
+  const editing = !!lead;
+  const v = lead || {};
   return `
   <section class="panel crm-add">
     <div class="panel-head">
-      <h2>Add a student or lead</h2>
-      <p class="muted">Enter everything you know — only a name is required. Set the status to <em>enrolled</em> and they can create their own student login at the portal.</p>
+      <h2>${editing ? 'Edit record' : 'Add a student or lead'}</h2>
+      <p class="muted">${
+        editing
+          ? 'Update any field and save. Set the status to <em>enrolled</em> and they can create their own student login at the portal.'
+          : 'Enter everything you know — only a name is required. Set the status to <em>enrolled</em> and they can create their own student login at the portal.'
+      }</p>
     </div>
-    <form id="addLeadForm" class="lead-form" autocomplete="off">
+    <form id="${editing ? 'editLeadForm' : 'addLeadForm'}" class="lead-form" autocomplete="off"${editing ? ` data-id="${esc(v.id)}"` : ''}>
       <div class="lead-form-grid">
-        <label class="field"><span>Name *</span><input name="name" required placeholder="Full name" /></label>
-        <label class="field"><span>Email</span><input name="email" type="email" placeholder="name@example.com" /></label>
-        <label class="field"><span>Phone</span><input name="phone" placeholder="(404) 555-0100" /></label>
-        <label class="field"><span>Source</span><input name="source" list="leadSources" placeholder="Website, Referral, Event…" /></label>
-        <label class="field"><span>Interest</span><input name="interest" list="leadInterests" placeholder="Funding Masterclass…" /></label>
+        <label class="field"><span>Name *</span><input name="name" required placeholder="Full name" value="${esc(v.name || '')}" /></label>
+        <label class="field"><span>Email</span><input name="email" type="email" placeholder="name@example.com" value="${esc(v.email || '')}" /></label>
+        <label class="field"><span>Phone</span><input name="phone" placeholder="(404) 555-0100" value="${esc(v.phone || '')}" /></label>
+        <label class="field"><span>Source</span><input name="source" list="leadSources" placeholder="Website, Referral, Event…" value="${esc(v.source || '')}" /></label>
+        <label class="field"><span>Interest</span><input name="interest" list="leadInterests" placeholder="Funding Masterclass…" value="${esc(v.interest || '')}" /></label>
         <label class="field"><span>Status</span>
-          <select name="status">${STATUS_OPTIONS.map((o) => `<option value="${o}" ${o === 'new' ? 'selected' : ''}>${o}</option>`).join('')}</select>
+          <select name="status">${STATUS_OPTIONS.map((o) => `<option value="${o}" ${o === (v.status || 'new') ? 'selected' : ''}>${o}</option>`).join('')}</select>
         </label>
-        <label class="field"><span>Date added</span><input name="createdAt" type="date" value="${todayISO()}" /></label>
+        <label class="field"><span>Date added</span><input name="createdAt" type="date" value="${esc(v.createdAt || todayISO())}" /></label>
         <label class="field"><span>Grant ($300 fee)</span>
           <span class="grant-cell">
-            <input type="checkbox" class="grant-chk" name="grantAwarded" />
-            <input type="number" class="grant-amt" name="grantAmount" value="300" min="0" step="50" />
+            <input type="checkbox" class="grant-chk" name="grantAwarded" ${v.grantAwarded ? 'checked' : ''} />
+            <input type="number" class="grant-amt" name="grantAmount" value="${esc(String(v.grantAmount || 300))}" min="0" step="50" />
           </span>
         </label>
       </div>
-      <label class="field lead-form-notes"><span>Notes</span><textarea name="notes" rows="2" placeholder="Anything useful — payment plan, business type, follow-up date…"></textarea></label>
+      <label class="field lead-form-notes"><span>Notes</span><textarea name="notes" rows="2" placeholder="Anything useful — payment plan, business type, follow-up date…">${esc(v.notes || '')}</textarea></label>
       <div class="lead-form-actions">
-        <button type="button" class="btn btn-ghost" data-action="toggle-add-lead">Cancel</button>
-        <button type="submit" class="btn btn-primary">Add record</button>
+        <button type="button" class="btn btn-ghost" data-action="${editing ? 'cancel-edit-lead' : 'toggle-add-lead'}">Cancel</button>
+        <button type="submit" class="btn btn-primary">${editing ? 'Save changes' : 'Add record'}</button>
       </div>
     </form>
     <datalist id="leadSources"><option>Website form</option><option>Referral</option><option>Instagram</option><option>Event — Boss Court TV</option><option>Newsletter</option><option>Jotform enrollment</option><option>Phone call</option><option>Walk-in</option></datalist>
@@ -1418,10 +1430,23 @@ app.addEventListener('click', async (e) => {
       crm.q = '';
       crm.status = 'all';
       crm.adding = false;
+      crm.editingId = null;
       render();
       break;
     case 'toggle-add-lead':
       crm.adding = !crm.adding;
+      crm.editingId = null;
+      render();
+      break;
+    case 'edit-lead':
+      crm.editingId = d.id;
+      crm.adding = false;
+      render();
+      document.querySelector('.crm-add')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.querySelector('#editLeadForm [name="name"]')?.focus();
+      break;
+    case 'cancel-edit-lead':
+      crm.editingId = null;
       render();
       break;
     case 'delete-lead': {
@@ -1615,6 +1640,30 @@ app.addEventListener('submit', async (e) => {
     });
     crm.adding = false;
     toast('Record added ✓');
+    render();
+    return;
+  }
+
+  if (form.id === 'editLeadForm') {
+    const name = form.name.value.trim();
+    if (!name) {
+      toast('Enter a name');
+      return;
+    }
+    store.updateLead(form.dataset.id, {
+      name,
+      email: form.email.value.trim(),
+      phone: form.phone.value.trim(),
+      source: form.source.value.trim(),
+      interest: form.interest.value.trim(),
+      status: form.status.value,
+      createdAt: form.createdAt.value || todayISO(),
+      notes: form.notes.value.trim(),
+      grantAwarded: form.grantAwarded.checked,
+      grantAmount: Number(form.grantAmount.value) || 0,
+    });
+    crm.editingId = null;
+    toast('Record updated ✓');
     render();
     return;
   }

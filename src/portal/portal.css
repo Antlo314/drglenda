@@ -358,6 +358,20 @@ button { font-family: inherit; }
 
 .crm-actions { white-space: nowrap; }
 .crm-actions > * + * { margin-left: 6px; }
+.row-edit {
+  border: 1.5px solid var(--line-strong);
+  background: #fff;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.row-edit:hover { background: var(--maroon); color: #fff; border-color: var(--maroon); }
+.row-edit:focus-visible { outline: none; box-shadow: var(--ring); }
 .row-approve {
   border: 1.5px solid var(--line-strong);
   background: #fff;
