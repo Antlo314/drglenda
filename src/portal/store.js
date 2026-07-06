@@ -29,7 +29,15 @@ function emptyState() {
 function loadLocal() {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      // Migration: consolidate all sessions into Week 1 / 2026-07-06
+      if (parsed.sessions && parsed.sessions.some((s) => s.week !== 1 || s.date !== '2026-07-06')) {
+        parsed.sessions = parsed.sessions.map((s) => ({ ...s, week: 1, date: '2026-07-06' }));
+        try { localStorage.setItem(KEY, JSON.stringify(parsed)); } catch { /* ignore */ }
+      }
+      return parsed;
+    }
   } catch {
     /* fall through to seed */
   }

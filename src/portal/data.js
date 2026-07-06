@@ -48,8 +48,8 @@ export const SEED = {
       ],
     },
     {
-      id: 's2', week: 2, title: 'Business Credit & Entity Structure',
-      date: '2026-07-13', durationMin: 64, thumb: '/assets/edu-2.png',
+      id: 's2', week: 1, title: 'Business Credit & Entity Structure',
+      date: '2026-07-06', durationMin: 64, thumb: '/assets/edu-2.png',
       videoUrl: 'https://www.youtube.com/embed/ScMzIvxBSi4',
       summary: 'Choosing the right entity, establishing an EIN, and building business credit separate from your personal score.',
       notes: [
@@ -60,8 +60,8 @@ export const SEED = {
       ],
     },
     {
-      id: 's3', week: 3, title: 'Bookkeeping, Financials & Cash Flow',
-      date: '2026-07-20', durationMin: 61, thumb: '/assets/edu-3.png',
+      id: 's3', week: 1, title: 'Bookkeeping, Financials & Cash Flow',
+      date: '2026-07-06', durationMin: 61, thumb: '/assets/edu-3.png',
       videoUrl: 'https://www.youtube.com/embed/ScMzIvxBSi4',
       summary: 'Reading the three core financial statements and keeping books a funder will trust.',
       notes: [
@@ -72,8 +72,8 @@ export const SEED = {
       ],
     },
     {
-      id: 's4', week: 4, title: 'Building a Fundable Business Plan',
-      date: '2026-07-27', durationMin: 72, thumb: '/assets/edu-4.webp',
+      id: 's4', week: 1, title: 'Building a Fundable Business Plan',
+      date: '2026-07-06', durationMin: 72, thumb: '/assets/edu-4.webp',
       videoUrl: 'https://www.youtube.com/embed/ScMzIvxBSi4',
       summary: 'Translating your vision into a lender-ready plan with a defensible use-of-funds.',
       notes: [
@@ -84,8 +84,8 @@ export const SEED = {
       ],
     },
     {
-      id: 's5', week: 5, title: 'Grants, Loans & Investor Capital',
-      date: '2026-08-03', durationMin: 67, thumb: '/assets/edu-1.png',
+      id: 's5', week: 1, title: 'Grants, Loans & Investor Capital',
+      date: '2026-07-06', durationMin: 67, thumb: '/assets/edu-1.png',
       videoUrl: 'https://www.youtube.com/embed/ScMzIvxBSi4',
       summary: 'Mapping the full capital landscape and matching the right source to your stage and need.',
       notes: [
@@ -96,8 +96,8 @@ export const SEED = {
       ],
     },
     {
-      id: 's6', week: 6, title: 'The Funding Pitch & Lender Relationships',
-      date: '2026-08-10', durationMin: 69, thumb: '/assets/edu-2.png',
+      id: 's6', week: 1, title: 'The Funding Pitch & Lender Relationships',
+      date: '2026-07-06', durationMin: 69, thumb: '/assets/edu-2.png',
       videoUrl: 'https://www.youtube.com/embed/ScMzIvxBSi4',
       summary: 'Delivering a confident pitch, anticipating underwriter questions, and building lasting funder relationships.',
       notes: [
