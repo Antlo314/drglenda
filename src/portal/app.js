@@ -580,7 +580,7 @@ function sessionDetail(user) {
   if (!sx) return `<p>Session not found.</p>`;
   const prog = store.getProgress(user.id);
   const done = prog.completed.includes(sx.id);
-  const quizzes = store.getQuizzesForSession(sx.id);
+  const quizzes = store.getVisibleQuizzesForSession(sx.id);
   const materials = store.getMaterialsForSession(sx.id);
 
   return `
@@ -624,9 +624,9 @@ function sessionDetail(user) {
         const sub = prog.submissions?.[q.id];
         const label = sub
           ? sub.status === 'graded'
-            ? `View result (${sub.score}%)`
+            ? `View result${q.type === 'auto' ? ` (${sub.score}%)` : ''}`
             : 'View submission'
-          : `Take the ${q.type === 'auto' ? 'quiz' : 'assignment'}`;
+          : `Take the ${q.type === 'auto' ? 'quiz' : isWritten(q) ? 'test' : 'assignment'}`;
         return `<button class="btn btn-light" data-action="go" data-route="quiz" data-id="${q.id}">${esc(label)}</button>`;
       })
       .join('')}
@@ -650,14 +650,67 @@ function sessionDetail(user) {
   </section>`;
 }
 
+/** A written test = a manual quiz made of free-response questions (no options). */
+const isWritten = (q) =>
+  !!q && q.type === 'manual' && Array.isArray(q.questions) && q.questions.length > 0;
+
 function quizView(user) {
   const q = store.getQuizById(route.params.id);
   if (!q) return `<p>Test not found.</p>`;
+  // Students can't open a test until an admin has set it live.
+  if (!q.published && user.role !== 'admin') {
+    return `<div class="page-head"><h1>${esc(q.title)}</h1></div>
+    <section class="panel"><p class="muted">This test isn’t open yet. Your instructor will make it available when the class is ready.</p></section>`;
+  }
+  const written = isWritten(q);
   const sub = store.getProgress(user.id).submissions?.[q.id];
   const sx = store.getSessionById(q.sessionId);
+  const kind = q.type === 'auto' ? 'Quiz' : written ? 'Test' : 'Assignment';
   const head = `
     <button class="back-link" data-action="go" data-route="session" data-id="${q.sessionId}">← ${esc(sx ? sx.title : 'Back')}</button>
-    <div class="page-head"><div><span class="eyebrow">${q.type === 'auto' ? 'Quiz' : 'Assignment'}</span><h1>${esc(q.title)}</h1></div></div>`;
+    <div class="page-head"><div><span class="eyebrow">${kind}</span><h1>${esc(q.title)}</h1></div></div>`;
+
+  /* ---- written test (free-response, instructor-graded) ---- */
+  if (written) {
+    const qaBlock = (answers) => `
+      <section class="panel"><div class="panel-head"><h2>Your answers</h2></div>
+        ${q.questions
+          .map(
+            (qq, i) => `<div class="review-q">
+              <p class="rq-prompt">${i + 1}. ${esc(qq.prompt)}</p>
+              <p class="answer-box">${esc((answers && answers[qq.id]) || '—')}</p>
+            </div>`
+          )
+          .join('')}
+      </section>`;
+    if (sub && sub.status === 'graded') {
+      return `${head}
+      <section class="panel result-panel">
+        <div class="big-score ${sub.score >= 70 ? 'pass' : 'fail'}">${sub.score}<small>/${q.maxScore || 100}</small></div>
+        <p>Graded ${fmtDate(sub.gradedAt)}</p>
+        ${sub.feedback ? `<div class="feedback"><strong>Instructor feedback</strong><p>${esc(sub.feedback)}</p></div>` : ''}
+      </section>
+      ${qaBlock(sub.answers)}`;
+    }
+    if (sub && sub.status === 'submitted') {
+      return `${head}
+      <section class="panel"><div class="pending-banner">⏳ Submitted ${fmtDate(sub.submittedAt)} — awaiting instructor review.</div></section>
+      ${qaBlock(sub.answers)}`;
+    }
+    return `${head}
+    <form id="writtenForm" data-quiz="${q.id}" class="panel quiz-form">
+      <p class="muted">Answer each question in your own words. Your instructor will review and grade your responses.</p>
+      ${q.questions
+        .map(
+          (qq, i) => `<fieldset class="quiz-q">
+        <legend>${i + 1}. ${esc(qq.prompt)}</legend>
+        <textarea name="${qq.id}" rows="4" placeholder="Write your answer…" required></textarea>
+      </fieldset>`
+        )
+        .join('')}
+      <button type="submit" class="btn btn-primary">Submit for review</button>
+    </form>`;
+  }
 
   /* ---- already-graded auto quiz: show results ---- */
   if (q.type === 'auto' && sub) {
@@ -739,7 +792,13 @@ function quizView(user) {
 
 function studentTests(user) {
   const prog = store.getProgress(user.id);
-  const quizzes = store.getQuizzes();
+  const quizzes = store.getVisibleQuizzes();
+  if (!quizzes.length) {
+    return `
+    <div class="page-head"><h1>My Tests</h1><p class="muted">Your quizzes and assignments across the program.</p></div>
+    <section class="panel"><div class="empty"><div class="empty-ico">📝</div><h3>No tests open yet</h3>
+      <p class="muted">Your instructor opens each test when the class is ready. Check back soon.</p></div></section>`;
+  }
   return `
   <div class="page-head"><h1>My Tests</h1><p class="muted">Your quizzes and assignments across the program.</p></div>
   <section class="panel">
@@ -755,10 +814,11 @@ function studentTests(user) {
               ? `<span class="pill pill-done">Graded</span>`
               : `<span class="pill pill-pending">Pending review</span>`;
             const score = sub && sub.status === 'graded' ? `${sub.score}${q.type === 'manual' ? '/100' : '%'}` : '—';
+            const type = q.type === 'auto' ? 'Quiz' : isWritten(q) ? 'Test' : 'Assignment';
             const cta = !sub ? 'Start' : 'View';
             return `<tr>
               <td><strong>${esc(q.title)}</strong></td>
-              <td>${q.type === 'auto' ? 'Quiz' : 'Assignment'}</td>
+              <td>${type}</td>
               <td>${status}</td>
               <td>${score}</td>
               <td><button class="btn btn-ghost btn-sm" data-action="go" data-route="quiz" data-id="${q.id}">${cta} →</button></td>
@@ -965,13 +1025,26 @@ function gradeView() {
   const sub = store.getProgress(studentId).submissions?.[quizId];
   if (!student || !quiz || !sub) return `<p>Submission not found.</p>`;
 
+  const submissionPanel = isWritten(quiz)
+    ? `<section class="panel"><div class="panel-head"><h2>Student answers</h2></div>
+        ${quiz.questions
+          .map(
+            (qq, i) => `<div class="review-q">
+            <p class="rq-prompt">${i + 1}. ${esc(qq.prompt)}</p>
+            <p class="answer-box">${esc((sub.answers && sub.answers[qq.id]) || '—')}</p>
+          </div>`
+          )
+          .join('')}
+      </section>`
+    : `<section class="panel"><div class="panel-head"><h2>Prompt</h2></div><p class="muted">${esc(quiz.prompt)}</p></section>
+  <section class="panel"><div class="panel-head"><h2>Student submission</h2></div><p class="answer-box">${esc(sub.answer)}</p></section>`;
+
   return `
   <button class="back-link" data-action="go" data-route="admin-grading">← Grading queue</button>
   <div class="page-head"><div class="cell-user big">${avatar(student, 48)}<div>
     <h1>${esc(quiz.title)}</h1><p class="muted">${esc(student.name)} · submitted ${fmtDate(sub.submittedAt)}</p></div></div></div>
 
-  <section class="panel"><div class="panel-head"><h2>Prompt</h2></div><p class="muted">${esc(quiz.prompt)}</p></section>
-  <section class="panel"><div class="panel-head"><h2>Student submission</h2></div><p class="answer-box">${esc(sub.answer)}</p></section>
+  ${submissionPanel}
 
   <form id="gradeForm" data-student="${studentId}" data-quiz="${quizId}" class="panel">
     <div class="panel-head"><h2>Assign grade</h2></div>
@@ -1055,7 +1128,21 @@ function adminContent() {
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px">${source} ${uploader}</div>
           <input type="text" class="session-edit-input" data-action="session-video"
             data-id="${x.id}" value="${esc(x.videoUrl || '')}" placeholder="YouTube / Vimeo embed URL" />
-          ${qz.length ? `<div style="margin-top:10px">${qz.map((q) => `<span class="tag">${esc(q.title)}</span>`).join('')}</div>` : ''}
+          ${qz.length ? `<label class="sc-label" style="margin-top:10px">Tests</label>
+          <div class="quiz-live-list">
+            ${qz
+              .map(
+                (q) => `<div class="quiz-live-row">
+              <span class="qlr-title">${esc(q.title)}</span>
+              ${q.published
+                ? `<span class="pill pill-done">● Live</span>`
+                : `<span class="pill pill-todo">Offline</span>`}
+              <button class="btn btn-sm ${q.published ? 'btn-outline' : 'btn-primary'}"
+                data-action="toggle-quiz-live" data-id="${q.id}">${q.published ? 'Take offline' : 'Go live'}</button>
+            </div>`
+              )
+              .join('')}
+          </div>` : ''}
         </div>
       </div>
     </div>`;
@@ -1511,6 +1598,14 @@ app.addEventListener('click', async (e) => {
       toast('Session added ✓');
       render();
       break;
+    case 'toggle-quiz-live': {
+      const q = store.getQuizById(d.id);
+      if (!q) break;
+      store.setQuizPublished(q.id, !q.published);
+      toast(q.published ? 'Test taken offline' : 'Test is now live for students ✓');
+      render();
+      break;
+    }
     case 'delete-session': {
       const s = store.getSessionById(d.id);
       if (confirm(`Delete session “${s?.title || 'this session'}”? This cannot be undone.`)) {
@@ -1814,6 +1909,19 @@ app.addEventListener('submit', async (e) => {
   if (form.id === 'manualForm') {
     const user = currentUser();
     store.submitManual(user.id, form.dataset.quiz, form.answer.value.trim(), todayISO());
+    toast('Submitted for review ✓');
+    render();
+    return;
+  }
+
+  if (form.id === 'writtenForm') {
+    const user = currentUser();
+    const quiz = store.getQuizById(form.dataset.quiz);
+    const answers = {};
+    quiz.questions.forEach((q) => {
+      answers[q.id] = (form.elements[q.id]?.value || '').trim();
+    });
+    store.submitWritten(user.id, quiz.id, answers, todayISO());
     toast('Submitted for review ✓');
     render();
     return;

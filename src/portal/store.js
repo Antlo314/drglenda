@@ -115,6 +115,7 @@ const mapSession = (r) => {
 const mapQuiz = (r) => ({
   id: r.id, sessionId: r.session_id, type: r.type, title: r.title,
   maxScore: r.max_score, prompt: r.prompt, questions: r.questions || [],
+  published: !!r.published,
 });
 // A class material's `url` is either a normal URL (link/external) or a
 // 'storage:'-prefixed object path in the session-media bucket (a private file).
@@ -225,6 +226,10 @@ export const getSessionById = (id) => state.sessions.find((s) => s.id === id) ||
 export const getQuizzes = () => state.quizzes;
 export const getQuizById = (id) => state.quizzes.find((q) => q.id === id) || null;
 export const getQuizzesForSession = (sid) => state.quizzes.filter((q) => q.sessionId === sid);
+// Student-facing: only tests an admin has set "live" are visible.
+export const getVisibleQuizzes = () => state.quizzes.filter((q) => q.published);
+export const getVisibleQuizzesForSession = (sid) =>
+  state.quizzes.filter((q) => q.published && q.sessionId === sid);
 export const getLeads = () =>
   [...state.leads].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 
@@ -325,6 +330,33 @@ export function submitManual(studentId, quizId, answer, todayISO) {
       { onConflict: 'profile_id,quiz_id' }
     )
   );
+}
+
+/** Written test: student submits a free-response answer for each question.
+ *  Answers are keyed by question id; the test then enters the grading queue. */
+export function submitWritten(studentId, quizId, answers, todayISO) {
+  const next = structuredClone(state);
+  next.progress[studentId] ??= { completed: [], submissions: {} };
+  next.progress[studentId].submissions[quizId] = {
+    type: 'manual', status: 'submitted', submittedAt: todayISO, answers,
+  };
+  set(next);
+  push(() =>
+    supabase.from('submissions').upsert(
+      { profile_id: studentId, quiz_id: quizId, type: 'manual', status: 'submitted', answers, submitted_at: todayISO },
+      { onConflict: 'profile_id,quiz_id' }
+    )
+  );
+}
+
+/** Admin toggles a test live/offline (the "Go live" button on Sessions). */
+export function setQuizPublished(quizId, published) {
+  const next = structuredClone(state);
+  const q = next.quizzes.find((x) => x.id === quizId);
+  if (!q) return;
+  q.published = published;
+  set(next);
+  push(() => supabase.from('quizzes').update({ published }).eq('id', quizId));
 }
 
 export function gradeSubmission(studentId, quizId, score, feedback, todayISO) {

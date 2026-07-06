@@ -8,6 +8,23 @@
    calls later.
    ========================================================================== */
 
+import { CURRICULUM } from './curriculum.js';
+
+// The Week 1 test shows students the EXACT free-response questions from the
+// curriculum (curriculum.js is the single source of truth — we never redefine
+// them here). It is manually graded and starts OFFLINE until an admin sets it
+// live from the Sessions panel.
+const week1 = CURRICULUM.weeks.find((w) => w.week === 1);
+const WEEK1_TEST = {
+  id: 'qw1',
+  sessionId: 's1',
+  type: 'manual',
+  published: false,
+  title: 'Week 1 Test — Entrepreneurial Mindset & Business Foundation',
+  maxScore: 100,
+  questions: (week1?.quiz || []).map((prompt, i) => ({ id: `qw1-${i + 1}`, prompt })),
+};
+
 // NOTE: passwords are plaintext here ONLY because this is a front-end demo with
 // no server. Real auth (hashed passwords / magic links) arrives with the backend.
 export const SEED = {
@@ -110,98 +127,76 @@ export const SEED = {
   ],
 
   // ---- Tests / quizzes -------------------------------------------------------
-  // type 'auto'   -> scored instantly from correctIndex
-  // type 'manual' -> student submits text/work; admin grades it
-  quizzes: [
-    {
-      id: 'q1', sessionId: 's1', type: 'auto', title: 'Funding Readiness Basics',
-      questions: [
-        { id: 'q1a', prompt: 'Which is NOT one of the 5 C’s of credit?', options: ['Capacity', 'Collateral', 'Charisma', 'Conditions'], correctIndex: 2 },
-        { id: 'q1b', prompt: 'Funders primarily underwrite a business’s…', options: ['Social media following', 'Cash flow', 'Office size', 'Logo design'], correctIndex: 1 },
-        { id: 'q1c', prompt: 'A first step toward funding readiness is to…', options: ['Mix personal & business funds', 'Separate personal & business finances', 'Avoid bookkeeping', 'Skip the EIN'], correctIndex: 1 },
-        { id: 'q1d', prompt: 'Funding readiness is best described as…', options: ['Luck', 'Documentation + credit + cash flow + clear use of funds', 'A high follower count', 'A nice website'], correctIndex: 1 },
-      ],
-    },
-    {
-      id: 'q2', sessionId: 's2', type: 'auto', title: 'Business Credit Fundamentals',
-      questions: [
-        { id: 'q2a', prompt: 'A D-U-N-S number is issued by…', options: ['The IRS', 'Dun & Bradstreet', 'Your bank', 'The SBA'], correctIndex: 1 },
-        { id: 'q2b', prompt: 'Net-30 vendor accounts help you…', options: ['Lower your taxes', 'Build business tradelines', 'Avoid an EIN', 'Skip bookkeeping'], correctIndex: 1 },
-        { id: 'q2c', prompt: 'Which entity offers liability protection?', options: ['Sole proprietorship', 'LLC', 'Handshake deal', 'None'], correctIndex: 1 },
-      ],
-    },
-    {
-      id: 'q3', sessionId: 's4', type: 'manual', title: 'One-Page Business Plan (Instructor Review)',
-      maxScore: 100,
-      prompt: 'Submit your one-page business plan. Include: executive summary, the funding amount requested, a specific use-of-funds, and 12-month financial projections.',
-    },
-    {
-      id: 'q4', sessionId: 's5', type: 'auto', title: 'Capital Sources',
-      questions: [
-        { id: 'q4a', prompt: 'Which capital type is non-dilutive?', options: ['Equity investment', 'Grants', 'Selling shares', 'Venture capital'], correctIndex: 1 },
-        { id: 'q4b', prompt: 'A CDFI is a…', options: ['Credit card', 'Community Development Financial Institution', 'Tax form', 'Type of grant scam'], correctIndex: 1 },
-        { id: 'q4c', prompt: 'SBA 7(a) refers to a…', options: ['Grant', 'Loan program', 'Tax credit', 'Stock'], correctIndex: 1 },
-      ],
-    },
-  ],
+  // ONE test per week, built from the exact quiz questions in curriculum.js
+  // (the single source of truth). Written tests are free-response and
+  // instructor-graded; `published` stays false until an admin sets them "live".
+  quizzes: [WEEK1_TEST],
 
   // ---- Per-student progress + quiz submissions -------------------------------
   // completed: array of session ids the student has finished
   // submissions: keyed by quizId
+  // Submissions are keyed by the single per-week test id (qw1). Written-test
+  // answers are keyed by question id (qw1-1 … qw1-5).
   progress: {
     'u-jordan': {
       completed: ['s1', 's2', 's3', 's4'],
       submissions: {
-        q1: { type: 'auto', score: 100, total: 4, correct: 4, status: 'graded', submittedAt: '2026-07-07' },
-        q2: { type: 'auto', score: 67, total: 3, correct: 2, status: 'graded', submittedAt: '2026-07-14' },
-        q3: { type: 'manual', status: 'submitted', submittedAt: '2026-07-28', answer: 'Mobile detailing business. Requesting $25,000 to purchase a second van and hire one technician. 12-month projection attached: revenue grows from $6k/mo to $14k/mo by month 12.' },
+        qw1: { type: 'manual', status: 'submitted', submittedAt: '2026-07-07', answers: {
+          'qw1-1': 'Believing your skills can grow through effort and learning.',
+          'qw1-2': 'It gives the business clear, measurable targets to work toward.',
+          'qw1-3': 'To describe the long-term direction and purpose of the business.',
+          'qw1-4': 'Resilience and a willingness to take calculated risks.',
+          'qw1-5': 'Being financially and mentally prepared to launch and run a business.',
+        } },
       },
     },
     'u-maya': {
       completed: ['s1', 's2', 's3', 's4', 's5'],
       submissions: {
-        q1: { type: 'auto', score: 100, total: 4, correct: 4, status: 'graded', submittedAt: '2026-07-06' },
-        q2: { type: 'auto', score: 100, total: 3, correct: 3, status: 'graded', submittedAt: '2026-07-13' },
-        q3: { type: 'manual', status: 'graded', score: 92, feedback: 'Strong use-of-funds and realistic projections. Tighten the competitive analysis.', submittedAt: '2026-07-27', gradedAt: '2026-07-29', answer: 'Boutique bakery expansion. Requesting $40,000 for a second location build-out. Detailed P&L and break-even by month 9 included.' },
-        q4: { type: 'auto', score: 100, total: 3, correct: 3, status: 'graded', submittedAt: '2026-08-03' },
+        qw1: { type: 'manual', status: 'graded', score: 92, feedback: 'Strong, well-articulated answers. Expand a little on readiness in Q5.', submittedAt: '2026-07-06', gradedAt: '2026-07-08', answers: {
+          'qw1-1': 'A mindset that treats ability as something you develop, not a fixed trait.',
+          'qw1-2': 'Goals turn a vision into concrete milestones and keep the team accountable.',
+          'qw1-3': 'It aligns everyone around where the business is headed and why.',
+          'qw1-4': 'Persistence and adaptability.',
+          'qw1-5': 'Having the documentation, mindset, and resources in place to start.',
+        } },
       },
     },
     'u-andre': {
       completed: ['s1', 's2'],
-      submissions: {
-        q1: { type: 'auto', score: 75, total: 4, correct: 3, status: 'graded', submittedAt: '2026-07-08' },
-        q2: { type: 'auto', score: 33, total: 3, correct: 1, status: 'graded', submittedAt: '2026-07-15' },
-      },
+      submissions: {},
     },
     'u-priya': {
       completed: ['s1', 's2', 's3'],
       submissions: {
-        q1: { type: 'auto', score: 100, total: 4, correct: 4, status: 'graded', submittedAt: '2026-07-06' },
-        q2: { type: 'auto', score: 100, total: 3, correct: 3, status: 'graded', submittedAt: '2026-07-13' },
-        q3: { type: 'manual', status: 'submitted', submittedAt: '2026-07-29', answer: 'Childcare center serving 30 families. Requesting $60,000 for licensing, build-out, and staff. Projections show full enrollment by month 8.' },
+        qw1: { type: 'manual', status: 'submitted', submittedAt: '2026-07-08', answers: {
+          'qw1-1': 'The belief that intelligence and skills improve with practice.',
+          'qw1-2': 'Setting goals keeps the business focused and makes progress measurable.',
+          'qw1-3': 'It communicates the purpose and future of the business clearly.',
+          'qw1-4': 'Vision and discipline.',
+          'qw1-5': 'Readiness to commit the time, money, and effort a business requires.',
+        } },
       },
     },
     'u-carlos': {
       completed: ['s1'],
-      submissions: {
-        q1: { type: 'auto', score: 50, total: 4, correct: 2, status: 'graded', submittedAt: '2026-07-09' },
-      },
+      submissions: {},
     },
     'u-tasha': {
       completed: ['s1', 's2', 's3', 's4', 's5', 's6'],
       submissions: {
-        q1: { type: 'auto', score: 100, total: 4, correct: 4, status: 'graded', submittedAt: '2026-07-06' },
-        q2: { type: 'auto', score: 100, total: 3, correct: 3, status: 'graded', submittedAt: '2026-07-13' },
-        q3: { type: 'manual', status: 'graded', score: 88, feedback: 'Excellent plan. Add a sensitivity scenario for slower revenue.', submittedAt: '2026-07-26', gradedAt: '2026-07-28', answer: 'Landscaping & snow-removal LLC. Requesting $35,000 for equipment. Year-round revenue model with seasonal balancing.' },
-        q4: { type: 'auto', score: 100, total: 3, correct: 3, status: 'graded', submittedAt: '2026-08-03' },
+        qw1: { type: 'manual', status: 'graded', score: 88, feedback: 'Great work. Give a second characteristic more detail in Q4.', submittedAt: '2026-07-06', gradedAt: '2026-07-09', answers: {
+          'qw1-1': 'Seeing challenges as chances to learn and improve.',
+          'qw1-2': 'It provides direction and a way to track whether the business is on course.',
+          'qw1-3': 'To capture the long-term vision that guides decisions.',
+          'qw1-4': 'Resourcefulness and resilience.',
+          'qw1-5': 'Being prepared — financially, legally, and personally — to run a business.',
+        } },
       },
     },
     'u-wei': {
       completed: ['s1', 's2', 's3', 's4'],
-      submissions: {
-        q1: { type: 'auto', score: 100, total: 4, correct: 4, status: 'graded', submittedAt: '2026-07-07' },
-        q2: { type: 'auto', score: 67, total: 3, correct: 2, status: 'graded', submittedAt: '2026-07-14' },
-      },
+      submissions: {},
     },
     'u-destiny': {
       completed: [],

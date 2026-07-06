@@ -30,25 +30,21 @@ on conflict (id) do update set
   thumb=excluded.thumb, video_url=excluded.video_url, summary=excluded.summary, notes=excluded.notes;
 
 -- ── Quizzes ──────────────────────────────────────────────────────────────────
-insert into public.quizzes (id, session_id, type, title, max_score, prompt, questions) values
-('q1','s1','auto','Funding Readiness Basics',100,null,
- '[{"id":"q1a","prompt":"Which is NOT one of the 5 C''s of credit?","options":["Capacity","Collateral","Charisma","Conditions"],"correctIndex":2},
-   {"id":"q1b","prompt":"Funders primarily underwrite a business''s…","options":["Social media following","Cash flow","Office size","Logo design"],"correctIndex":1},
-   {"id":"q1c","prompt":"A first step toward funding readiness is to…","options":["Mix personal & business funds","Separate personal & business finances","Avoid bookkeeping","Skip the EIN"],"correctIndex":1},
-   {"id":"q1d","prompt":"Funding readiness is best described as…","options":["Luck","Documentation + credit + cash flow + clear use of funds","A high follower count","A nice website"],"correctIndex":1}]'),
-('q2','s2','auto','Business Credit Fundamentals',100,null,
- '[{"id":"q2a","prompt":"A D-U-N-S number is issued by…","options":["The IRS","Dun & Bradstreet","Your bank","The SBA"],"correctIndex":1},
-   {"id":"q2b","prompt":"Net-30 vendor accounts help you…","options":["Lower your taxes","Build business tradelines","Avoid an EIN","Skip bookkeeping"],"correctIndex":1},
-   {"id":"q2c","prompt":"Which entity offers liability protection?","options":["Sole proprietorship","LLC","Handshake deal","None"],"correctIndex":1}]'),
-('q3','s4','manual','One-Page Business Plan (Instructor Review)',100,
- 'Submit your one-page business plan. Include: executive summary, the funding amount requested, a specific use-of-funds, and 12-month financial projections.','[]'),
-('q4','s5','auto','Capital Sources',100,null,
- '[{"id":"q4a","prompt":"Which capital type is non-dilutive?","options":["Equity investment","Grants","Selling shares","Venture capital"],"correctIndex":1},
-   {"id":"q4b","prompt":"A CDFI is a…","options":["Credit card","Community Development Financial Institution","Tax form","Type of grant scam"],"correctIndex":1},
-   {"id":"q4c","prompt":"SBA 7(a) refers to a…","options":["Grant","Loan program","Tax credit","Stock"],"correctIndex":1}]')
+-- ONE test per week, using the exact free-response questions from the curriculum.
+-- `published` gates student visibility: a test stays offline until an admin
+-- clicks "Go live" on the Sessions panel.
+insert into public.quizzes (id, session_id, type, title, max_score, prompt, questions, published) values
+('qw1','s1','manual','Week 1 Test — Entrepreneurial Mindset & Business Foundation',100,null,
+ '[{"id":"qw1-1","prompt":"What is a growth mindset?"},
+   {"id":"qw1-2","prompt":"Why is goal setting important in business?"},
+   {"id":"qw1-3","prompt":"What is the purpose of a business vision statement?"},
+   {"id":"qw1-4","prompt":"Name two characteristics of successful entrepreneurs."},
+   {"id":"qw1-5","prompt":"What is entrepreneurial readiness?"}]', false)
 on conflict (id) do update set
   session_id=excluded.session_id, type=excluded.type, title=excluded.title,
   max_score=excluded.max_score, prompt=excluded.prompt, questions=excluded.questions;
+  -- NOTE: `published` is intentionally NOT overwritten on re-seed, so re-running
+  -- this file never takes a live test offline.
 
 -- ── CRM leads ────────────────────────────────────────────────────────────────
 -- The CRM starts empty. The admin adds records manually in the portal, and new

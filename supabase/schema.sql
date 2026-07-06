@@ -76,8 +76,12 @@ create table if not exists public.quizzes (
   title      text not null,
   max_score  int default 100,
   prompt     text,
-  questions  jsonb default '[]'::jsonb   -- [{id,prompt,options[],correctIndex}]
+  questions  jsonb default '[]'::jsonb,  -- auto: [{id,prompt,options[],correctIndex}]
+                                          -- written: [{id,prompt}] (free response)
+  published  boolean not null default false  -- false until an admin sets it "live"
 );
+-- for existing databases created before the go-live flag was added:
+alter table public.quizzes add column if not exists published boolean not null default false;
 alter table public.quizzes enable row level security;
 drop policy if exists "quizzes read" on public.quizzes;
 drop policy if exists "quizzes admin write" on public.quizzes;

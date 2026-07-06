@@ -606,6 +606,19 @@ ol.wk-steps li::before { content: counter(step); counter-increment: step;
   display: block;
 }
 
+/* Per-test "Go live" control on each admin session card */
+.quiz-live-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.quiz-live-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  background: var(--cream-2);
+  border-radius: 8px;
+}
+.qlr-title { flex: 1 1 auto; min-width: 120px; font-size: 0.82rem; font-weight: 600; color: var(--ink); }
+
 .row-del {
   background: none;
   border: 0;
