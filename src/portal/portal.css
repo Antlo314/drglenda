@@ -516,3 +516,58 @@ ol.wk-steps li::before { content: counter(step); counter-increment: step;
 .meet-cell { display: flex; flex-direction: column; gap: 6px; min-width: 190px; }
 .meet-input, .meet-time { font-family: inherit; font-size: 0.82rem; padding: 7px 9px; border: 1.5px solid var(--line-strong); border-radius: 8px; background: var(--cream); color: var(--ink); width: 100%; }
 .meet-input:focus, .meet-time:focus { outline: none; border-color: var(--gold); box-shadow: var(--ring); background: #fff; }
+
+/* =============== SESSION EDIT INLINE INPUTS =============== */
+.session-edit-input, .session-edit-textarea {
+  font-family: inherit;
+  font-size: 0.82rem;
+  padding: 6px 9px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--cream);
+  color: var(--ink);
+  width: 100%;
+  box-sizing: border-box;
+}
+.session-edit-input:focus, .session-edit-textarea:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: var(--ring);
+  background: #fff;
+}
+.session-edit-textarea {
+  resize: vertical;
+}
+.title-summary-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 280px;
+}
+.date-duration-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 130px;
+}
+.video-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+}
+.row-del {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: color .15s, background .15s;
+}
+.row-del:hover {
+  color: #d13438;
+  background: rgba(209, 52, 56, 0.1);
+}
+

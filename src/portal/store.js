@@ -567,14 +567,96 @@ export async function uploadSessionVideo(sessionId, file) {
    LIVE CLASS — per-session Google Meet link + scheduled time
    ======================================================================== */
 export function setSessionMeet(sessionId, { meetUrl, liveAt }) {
+  updateSession(sessionId, { meetUrl, liveAt });
+}
+
+export function updateSession(sessionId, updates) {
   const next = structuredClone(state);
   const s = next.sessions.find((x) => x.id === sessionId);
   if (!s) return;
-  if (meetUrl !== undefined) s.meetUrl = meetUrl.trim();
-  if (liveAt !== undefined) s.liveAt = liveAt;
+
+  if (updates.week !== undefined) s.week = Number(updates.week);
+  if (updates.title !== undefined) s.title = updates.title.trim();
+  if (updates.date !== undefined) s.date = updates.date || null;
+  if (updates.durationMin !== undefined) s.durationMin = Number(updates.durationMin) || 0;
+  if (updates.summary !== undefined) s.summary = updates.summary.trim();
+  if (updates.videoUrl !== undefined) s.videoUrl = updates.videoUrl.trim();
+  if (updates.meetUrl !== undefined) s.meetUrl = updates.meetUrl.trim();
+  if (updates.liveAt !== undefined) s.liveAt = updates.liveAt;
+  if (updates.notes !== undefined) {
+    s.notes = Array.isArray(updates.notes)
+      ? updates.notes
+      : updates.notes.split('\n').map((n) => n.trim()).filter(Boolean);
+  }
+
   set(next);
   push(() =>
-    supabase.from('sessions').update({ meet_url: s.meetUrl || null, live_at: s.liveAt || null }).eq('id', sessionId)
+    supabase
+      .from('sessions')
+      .update({
+        week: s.week,
+        title: s.title,
+        date: s.date || null,
+        duration_min: s.durationMin,
+        summary: s.summary,
+        video_url: s.videoUrl || null,
+        meet_url: s.meetUrl || null,
+        live_at: s.liveAt || null,
+        notes: s.notes,
+      })
+      .eq('id', sessionId)
+  );
+}
+
+export function addSession() {
+  const next = structuredClone(state);
+  const week = next.sessions.length + 1;
+  const newId = `s${week}-${Date.now()}`;
+  const newSession = {
+    id: newId,
+    week,
+    title: `Week ${week} Session`,
+    date: new Date().toISOString().split('T')[0],
+    durationMin: 60,
+    thumb: '/assets/edu-1.png',
+    videoUrl: '',
+    meetUrl: '',
+    liveAt: '',
+    summary: 'New session summary.',
+    notes: [],
+  };
+  next.sessions.push(newSession);
+  set(next);
+
+  push(() =>
+    supabase
+      .from('sessions')
+      .insert({
+        id: newSession.id,
+        week: newSession.week,
+        title: newSession.title,
+        date: newSession.date,
+        duration_min: newSession.durationMin,
+        thumb: newSession.thumb,
+        video_url: newSession.videoUrl || null,
+        meet_url: newSession.meetUrl || null,
+        live_at: newSession.liveAt || null,
+        summary: newSession.summary,
+        notes: newSession.notes,
+      })
+  );
+}
+
+export function deleteSession(sessionId) {
+  const next = structuredClone(state);
+  next.sessions = next.sessions.filter((s) => s.id !== sessionId);
+  set(next);
+
+  push(() =>
+    supabase
+      .from('sessions')
+      .delete()
+      .eq('id', sessionId)
   );
 }
 

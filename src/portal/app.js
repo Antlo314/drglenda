@@ -990,10 +990,18 @@ function gradeView() {
 function adminContent() {
   const sessions = store.getSessions();
   return `
-  <div class="page-head"><div><h1>Class Sessions</h1><p class="muted">Recordings, notes &amp; linked tests · ${sessions.length} published</p></div></div>
+  <div class="page-head">
+    <div>
+      <h1>Class Sessions</h1>
+      <p class="muted">Recordings, notes &amp; linked tests · ${sessions.length} published</p>
+    </div>
+    <div class="head-actions">
+      <button class="btn btn-primary" data-action="add-session">＋ Add Session</button>
+    </div>
+  </div>
   <section class="panel">
     <table class="data-table">
-      <thead><tr><th>Wk</th><th>Title</th><th>Date</th><th>Video</th><th>Tests</th><th>Live class (Meet)</th></tr></thead>
+      <thead><tr><th>Wk</th><th>Title, Summary &amp; Notes</th><th>Date &amp; Duration</th><th>Video</th><th>Tests</th><th>Live class (Meet)</th><th></th></tr></thead>
       <tbody>
         ${sessions
           .map((x) => {
@@ -1006,14 +1014,46 @@ function adminContent() {
                    <input type="file" accept="video/*" data-action="upload-video" data-session="${x.id}" hidden />
                  </label>`
               : '';
-            return `<tr><td>${x.week}</td><td><strong>${esc(x.title)}</strong><br><small class="muted">${esc(x.summary)}</small></td>
-              <td>${fmtDate(x.date)} · ${x.durationMin} min</td>
-              <td><div class="video-cell">${source}${uploader}</div></td>
+            return `<tr>
+              <td>
+                <input type="number" class="session-edit-input" data-action="session-week" data-id="${x.id}" value="${x.week}" min="1" style="width: 55px;" required />
+              </td>
+              <td>
+                <div class="title-summary-cell">
+                  <input type="text" class="session-edit-input" data-action="session-title" data-id="${x.id}" value="${esc(x.title)}" placeholder="Session Title" required style="font-weight: 600;" />
+                  <textarea class="session-edit-textarea" data-action="session-summary" data-id="${x.id}" placeholder="Session Summary..." rows="2">${esc(x.summary || '')}</textarea>
+                  <textarea class="session-edit-textarea" data-action="session-notes" data-id="${x.id}" placeholder="Bullet points (one per line)..." rows="2">${esc((x.notes || []).join('\n'))}</textarea>
+                </div>
+              </td>
+              <td>
+                <div class="date-duration-cell">
+                  <input type="date" class="session-edit-input" data-action="session-date" data-id="${x.id}" value="${x.date || ''}" />
+                  <div style="display: flex; align-items: center; gap: 4px;">
+                    <input type="number" class="session-edit-input" data-action="session-duration" data-id="${x.id}" value="${x.durationMin || 0}" min="0" style="width: 70px;" />
+                    <span class="muted" style="font-size: 0.82rem;">min</span>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div class="video-cell">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    ${source}
+                    ${uploader}
+                  </div>
+                  <input type="text" class="session-edit-input" data-action="session-video" data-id="${x.id}" value="${esc(x.videoUrl || '')}" placeholder="Embed URL / ID" />
+                </div>
+              </td>
               <td>${qz.length ? qz.map((q) => `<span class="tag">${esc(q.title)}</span>`).join('') : '—'}</td>
-              <td><div class="meet-cell">
-                <input class="meet-input" data-action="session-meet" data-id="${x.id}" value="${esc(x.meetUrl || '')}" placeholder="Paste Google Meet link" />
-                <input type="datetime-local" class="meet-time" data-action="session-liveat" data-id="${x.id}" value="${esc(x.liveAt || '')}" />
-              </div></td></tr>`;
+              <td>
+                <div class="meet-cell">
+                  <input class="meet-input" data-action="session-meet" data-id="${x.id}" value="${esc(x.meetUrl || '')}" placeholder="Paste Google Meet link" />
+                  <input type="datetime-local" class="meet-time" data-action="session-liveat" data-id="${x.id}" value="${esc(x.liveAt || '')}" />
+                </div>
+              </td>
+              <td>
+                <button class="row-del" data-action="delete-session" data-id="${x.id}" title="Delete session" aria-label="Delete ${esc(x.title)}">🗑</button>
+              </td>
+            </tr>`;
           })
           .join('')}
       </tbody>
@@ -1434,6 +1474,20 @@ app.addEventListener('click', async (e) => {
       render();
       break;
     }
+    case 'add-session':
+      store.addSession();
+      toast('Session added ✓');
+      render();
+      break;
+    case 'delete-session': {
+      const s = store.getSessionById(d.id);
+      if (confirm(`Delete session “${s?.title || 'this session'}”? This cannot be undone.`)) {
+        store.deleteSession(d.id);
+        toast('Session deleted');
+        render();
+      }
+      break;
+    }
     case 'reset':
       store.resetDemo();
       toast('Demo data reset');
@@ -1793,12 +1847,42 @@ app.addEventListener('change', async (e) => {
     const res = await store.uploadMaterial(node.dataset.session, file, kind, file.name.replace(/\.[^.]+$/, ''));
     toast(res.ok ? 'Material uploaded ✓' : `Upload failed: ${res.error}`);
     render();
+  } else if (action === 'session-week') {
+    store.updateSession(node.dataset.id, { week: node.value });
+    toast('Session week updated ✓');
+    render();
+  } else if (action === 'session-title') {
+    store.updateSession(node.dataset.id, { title: node.value });
+    toast('Session title updated ✓');
+    render();
+  } else if (action === 'session-summary') {
+    store.updateSession(node.dataset.id, { summary: node.value });
+    toast('Session summary updated ✓');
+    render();
+  } else if (action === 'session-notes') {
+    store.updateSession(node.dataset.id, { notes: node.value });
+    toast('Session notes updated ✓');
+    render();
+  } else if (action === 'session-date') {
+    store.updateSession(node.dataset.id, { date: node.value });
+    toast('Session date updated ✓');
+    render();
+  } else if (action === 'session-duration') {
+    store.updateSession(node.dataset.id, { durationMin: node.value });
+    toast('Session duration updated ✓');
+    render();
+  } else if (action === 'session-video') {
+    store.updateSession(node.dataset.id, { videoUrl: node.value });
+    toast('Session video URL updated ✓');
+    render();
   } else if (action === 'session-meet') {
-    store.setSessionMeet(node.dataset.id, { meetUrl: node.value });
+    store.updateSession(node.dataset.id, { meetUrl: node.value });
     toast(node.value.trim() ? 'Meet link saved ✓' : 'Meet link cleared');
+    render();
   } else if (action === 'session-liveat') {
-    store.setSessionMeet(node.dataset.id, { liveAt: node.value });
+    store.updateSession(node.dataset.id, { liveAt: node.value });
     toast('Class time saved ✓');
+    render();
   }
 });
 
