@@ -171,44 +171,8 @@ const navObserver = new IntersectionObserver(
 
 sections.forEach((section) => navObserver.observe(section));
 
-/* -------------------------------------------------------------------------
-   Countdown to the July 2nd sign-up deadline
-   ------------------------------------------------------------------------- */
-const DEADLINE = new Date('2026-07-02T23:59:59').getTime();
-const cd = {
-  days: document.querySelector('[data-cd="days"]'),
-  hours: document.querySelector('[data-cd="hours"]'),
-  minutes: document.querySelector('[data-cd="minutes"]'),
-  seconds: document.querySelector('[data-cd="seconds"]'),
-};
-const countdownEl = document.getElementById('countdown');
 
-const pad = (n) => String(n).padStart(2, '0');
 
-function tickCountdown() {
-  if (!countdownEl) return;
-  const diff = DEADLINE - Date.now();
-
-  if (diff <= 0) {
-    countdownEl.innerHTML =
-      '<span class="countdown-label">Enrollment deadline (July 2nd) has passed — join the waiting list</span>';
-    clearInterval(timer);
-    return;
-  }
-
-  const days = Math.floor(diff / 86400000);
-  const hours = Math.floor((diff % 86400000) / 3600000);
-  const minutes = Math.floor((diff % 3600000) / 60000);
-  const seconds = Math.floor((diff % 60000) / 1000);
-
-  cd.days.textContent = days;
-  cd.hours.textContent = pad(hours);
-  cd.minutes.textContent = pad(minutes);
-  cd.seconds.textContent = pad(seconds);
-}
-
-tickCountdown();
-const timer = setInterval(tickCountdown, 1000);
 
 /* -------------------------------------------------------------------------
    Newsletter form (client-side validation)

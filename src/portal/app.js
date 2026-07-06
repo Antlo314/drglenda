@@ -989,81 +989,113 @@ function gradeView() {
 
 function adminContent() {
   const sessions = store.getSessions();
+
+  // Unique weeks sorted
+  const weeks = [...new Set(sessions.map((s) => s.week))].sort((a, b) => a - b);
+
+  const meetBlocks = weeks.map((w) => {
+    const wSessions = sessions.filter((s) => s.week === w);
+    const rep = wSessions[0];
+    return `
+    <div class="week-meet-block">
+      <div class="week-meet-label">
+        <span class="wk-num-badge">Week ${w}</span>
+      </div>
+      <div class="week-meet-inputs">
+        <input class="meet-input" data-action="week-meet" data-week="${w}"
+          value="${esc(rep.meetUrl || '')}" placeholder="https://meet.google.com/xxx-yyyy-zzz" />
+        <input type="datetime-local" class="meet-time" data-action="week-liveat" data-week="${w}"
+          value="${esc(rep.liveAt || '')}" title="Scheduled class time (optional)" />
+        ${rep.meetUrl ? `<a class="btn btn-light btn-sm" href="${esc(rep.meetUrl)}" target="_blank" rel="noopener">Test &#8599;</a>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  const sessionCards = sessions.map((x) => {
+    const qz = store.getQuizzesForSession(x.id);
+    const source = x.isFile
+      ? `<span class="pill pill-done">Uploaded</span>`
+      : `<span class="pill pill-todo">Embed URL</span>`;
+    const uploader = USE_SUPABASE
+      ? `<label class="upload-btn sm">${x.isFile ? 'Replace video' : 'Upload video'}
+           <input type="file" accept="video/*" data-action="upload-video" data-session="${x.id}" hidden />
+         </label>`
+      : '';
+
+    return `
+    <div class="session-card">
+      <div class="session-card-header">
+        <div class="session-card-wk">
+          <span class="sc-label">Wk</span>
+          <input type="number" class="session-edit-input sc-week-input" data-action="session-week"
+            data-id="${x.id}" value="${x.week}" min="1" />
+        </div>
+        <input type="text" class="session-edit-input sc-title-input" data-action="session-title"
+          data-id="${x.id}" value="${esc(x.title)}" placeholder="Session Title" />
+        <button class="row-del" data-action="delete-session" data-id="${x.id}"
+          title="Delete session" aria-label="Delete ${esc(x.title)}">&#128465;</button>
+      </div>
+      <div class="session-card-body">
+        <div class="sc-col sc-col-wide">
+          <label class="sc-label">Summary</label>
+          <textarea class="session-edit-textarea" data-action="session-summary" data-id="${x.id}"
+            placeholder="Brief session summary" rows="2">${esc(x.summary || '')}</textarea>
+          <label class="sc-label" style="margin-top:10px">Key points <span class="muted">(one per line)</span></label>
+          <textarea class="session-edit-textarea" data-action="session-notes" data-id="${x.id}"
+            placeholder="Bullet points, one per line" rows="3">${esc((x.notes || []).join('\n'))}</textarea>
+        </div>
+        <div class="sc-col">
+          <label class="sc-label">Date</label>
+          <input type="date" class="session-edit-input" data-action="session-date"
+            data-id="${x.id}" value="${x.date || ''}" />
+          <label class="sc-label" style="margin-top:10px">Duration <span class="muted">(min)</span></label>
+          <input type="number" class="session-edit-input" data-action="session-duration"
+            data-id="${x.id}" value="${x.durationMin || 0}" min="0" />
+          <label class="sc-label" style="margin-top:10px">Video</label>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px">${source} ${uploader}</div>
+          <input type="text" class="session-edit-input" data-action="session-video"
+            data-id="${x.id}" value="${esc(x.videoUrl || '')}" placeholder="YouTube / Vimeo embed URL" />
+          ${qz.length ? `<div style="margin-top:10px">${qz.map((q) => `<span class="tag">${esc(q.title)}</span>`).join('')}</div>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
   return `
   <div class="page-head">
     <div>
       <h1>Class Sessions</h1>
-      <p class="muted">Recordings, notes &amp; linked tests · ${sessions.length} published</p>
+      <p class="muted">Recordings, notes &amp; linked tests &middot; ${sessions.length} published</p>
     </div>
     <div class="head-actions">
-      <button class="btn btn-primary" data-action="add-session">＋ Add Session</button>
+      <button class="btn btn-primary" data-action="add-session">+ Add Session</button>
     </div>
   </div>
+
   <section class="panel">
-    <table class="data-table">
-      <thead><tr><th>Wk</th><th>Title, Summary &amp; Notes</th><th>Date &amp; Duration</th><th>Video</th><th>Tests</th><th>Live class (Meet)</th><th></th></tr></thead>
-      <tbody>
-        ${sessions
-          .map((x) => {
-            const qz = store.getQuizzesForSession(x.id);
-            const source = x.isFile
-              ? `<span class="pill pill-done">Uploaded</span>`
-              : `<span class="pill pill-todo">Embed</span>`;
-            const uploader = USE_SUPABASE
-              ? `<label class="upload-btn">${x.isFile ? 'Replace' : 'Upload'}
-                   <input type="file" accept="video/*" data-action="upload-video" data-session="${x.id}" hidden />
-                 </label>`
-              : '';
-            return `<tr>
-              <td>
-                <input type="number" class="session-edit-input" data-action="session-week" data-id="${x.id}" value="${x.week}" min="1" style="width: 55px;" required />
-              </td>
-              <td>
-                <div class="title-summary-cell">
-                  <input type="text" class="session-edit-input" data-action="session-title" data-id="${x.id}" value="${esc(x.title)}" placeholder="Session Title" required style="font-weight: 600;" />
-                  <textarea class="session-edit-textarea" data-action="session-summary" data-id="${x.id}" placeholder="Session Summary..." rows="2">${esc(x.summary || '')}</textarea>
-                  <textarea class="session-edit-textarea" data-action="session-notes" data-id="${x.id}" placeholder="Bullet points (one per line)..." rows="2">${esc((x.notes || []).join('\n'))}</textarea>
-                </div>
-              </td>
-              <td>
-                <div class="date-duration-cell">
-                  <input type="date" class="session-edit-input" data-action="session-date" data-id="${x.id}" value="${x.date || ''}" />
-                  <div style="display: flex; align-items: center; gap: 4px;">
-                    <input type="number" class="session-edit-input" data-action="session-duration" data-id="${x.id}" value="${x.durationMin || 0}" min="0" style="width: 70px;" />
-                    <span class="muted" style="font-size: 0.82rem;">min</span>
-                  </div>
-                </div>
-              </td>
-              <td>
-                <div class="video-cell">
-                  <div style="display: flex; align-items: center; gap: 6px;">
-                    ${source}
-                    ${uploader}
-                  </div>
-                  <input type="text" class="session-edit-input" data-action="session-video" data-id="${x.id}" value="${esc(x.videoUrl || '')}" placeholder="Embed URL / ID" />
-                </div>
-              </td>
-              <td>${qz.length ? qz.map((q) => `<span class="tag">${esc(q.title)}</span>`).join('') : '—'}</td>
-              <td>
-                <div class="meet-cell">
-                  <input class="meet-input" data-action="session-meet" data-id="${x.id}" value="${esc(x.meetUrl || '')}" placeholder="Paste Google Meet link" />
-                  <input type="datetime-local" class="meet-time" data-action="session-liveat" data-id="${x.id}" value="${esc(x.liveAt || '')}" />
-                </div>
-              </td>
-              <td>
-                <button class="row-del" data-action="delete-session" data-id="${x.id}" title="Delete session" aria-label="Delete ${esc(x.title)}">🗑</button>
-              </td>
-            </tr>`;
-          })
-          .join('')}
-      </tbody>
-    </table>
+    <div class="panel-head">
+      <h2>Live Class &mdash; Google Meet</h2>
+      <span class="muted" style="font-size:0.84rem">One link per week &middot; shared across all sessions in that week</span>
+    </div>
+    <div class="week-meet-list">
+      ${meetBlocks}
+    </div>
+    <p class="hint">Create the Meet link in Google Calendar for proper host controls. Students see a "Join Live Class" button on every session card for that week.</p>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Sessions</h2>
+      <span class="muted" style="font-size:0.84rem">Click any field to edit &middot; changes save automatically</span>
+    </div>
+    <div class="session-cards">
+      ${sessionCards}
+    </div>
     <p class="hint">${
       USE_SUPABASE
-        ? 'Upload a recording (MP4) to host it privately in Supabase Storage — students stream it via a secure, expiring link. Or keep using YouTube/Vimeo embeds.'
-        : 'Connect Supabase (see SUPABASE_SETUP.md) to upload and host videos here. In demo mode, sessions use embedded sample videos.'
+        ? 'Upload a recording (MP4) to host it privately in Supabase Storage. Or keep using YouTube/Vimeo embed URLs.'
+        : 'Connect Supabase to upload and host videos. In demo mode, sessions use embedded sample videos.'
     }</p>
-    <p class="hint">Live class: paste a Google Meet link (and optional date/time) for a week — enrolled students get a “Join Live Class” button on that session. Tip: use a link created in Google Calendar so you get proper host controls.</p>
   </section>
 
   ${adminMaterialsPanel()}`;
@@ -1882,6 +1914,20 @@ app.addEventListener('change', async (e) => {
   } else if (action === 'session-liveat') {
     store.updateSession(node.dataset.id, { liveAt: node.value });
     toast('Class time saved ✓');
+    render();
+  } else if (action === 'week-meet') {
+    const wNum = Number(node.dataset.week);
+    store.getSessions().filter((s) => s.week === wNum).forEach((s) => {
+      store.updateSession(s.id, { meetUrl: node.value });
+    });
+    toast(node.value.trim() ? `Week ${wNum} Meet link saved ✓` : `Week ${wNum} Meet link cleared`);
+    render();
+  } else if (action === 'week-liveat') {
+    const wNum = Number(node.dataset.week);
+    store.getSessions().filter((s) => s.week === wNum).forEach((s) => {
+      store.updateSession(s.id, { liveAt: node.value });
+    });
+    toast(`Week ${wNum} class time saved ✓`);
     render();
   }
 });

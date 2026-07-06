@@ -520,8 +520,8 @@ ol.wk-steps li::before { content: counter(step); counter-increment: step;
 /* =============== SESSION EDIT INLINE INPUTS =============== */
 .session-edit-input, .session-edit-textarea {
   font-family: inherit;
-  font-size: 0.82rem;
-  padding: 6px 9px;
+  font-size: 0.88rem;
+  padding: 7px 10px;
   border: 1.5px solid var(--line-strong);
   border-radius: 8px;
   background: var(--cream);
@@ -535,27 +535,77 @@ ol.wk-steps li::before { content: counter(step); counter-increment: step;
   box-shadow: var(--ring);
   background: #fff;
 }
-.session-edit-textarea {
-  resize: vertical;
-}
-.title-summary-cell {
+.session-edit-textarea { resize: vertical; }
+
+/* ---- Week Meet block (one link per week) ---- */
+.week-meet-list { display: flex; flex-direction: column; gap: 12px; }
+.week-meet-block {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-width: 280px;
+  gap: 8px;
+  padding: 14px 16px;
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
 }
-.date-duration-cell {
+.week-meet-label { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; }
+.wk-num-badge {
+  display: inline-block;
+  background: var(--maroon);
+  color: #fff;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+.week-meet-inputs {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 130px;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
-.video-cell {
+.week-meet-inputs .meet-input { flex: 2; min-width: 220px; }
+.week-meet-inputs .meet-time { flex: 1; min-width: 180px; }
+
+/* ---- Session cards layout ---- */
+.session-cards { display: flex; flex-direction: column; gap: 16px; }
+.session-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.session-card-header {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 180px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--cream-2);
+  border-bottom: 1px solid var(--line);
 }
+.session-card-wk { display: flex; align-items: center; gap: 6px; flex: none; }
+.sc-week-input { width: 58px !important; text-align: center; }
+.sc-title-input { flex: 1; font-weight: 600; font-size: 0.95rem !important; }
+.session-card-body {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 0;
+}
+.sc-col { padding: 16px; display: flex; flex-direction: column; gap: 4px; }
+.sc-col + .sc-col { border-left: 1px solid var(--line); background: var(--cream); }
+.sc-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 2px;
+  display: block;
+}
+
 .row-del {
   background: none;
   border: 0;
@@ -565,9 +615,12 @@ ol.wk-steps li::before { content: counter(step); counter-increment: step;
   padding: 4px 8px;
   border-radius: 4px;
   transition: color .15s, background .15s;
+  flex: none;
 }
-.row-del:hover {
-  color: #d13438;
-  background: rgba(209, 52, 56, 0.1);
-}
+.row-del:hover { color: #d13438; background: rgba(209, 52, 56, 0.1); }
 
+@media (max-width: 700px) {
+  .session-card-body { grid-template-columns: 1fr; }
+  .sc-col + .sc-col { border-left: 0; border-top: 1px solid var(--line); }
+  .week-meet-inputs { flex-direction: column; }
+}
