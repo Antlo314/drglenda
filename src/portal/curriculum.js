@@ -49,8 +49,17 @@ export const CURRICULUM = {
       ],
     },
 
-    // Weeks are published one at a time as the class progresses. To add the next
-    // week, append a fully-filled object here (same shape as Week 1 above).
-    // No placeholders — only live weeks appear in the portal.
+    // ── Weeks 2–12: pending — fill in content as class progresses ──
+    { week: 2,  pending: true, title: 'Business Structure & Legal Foundation' },
+    { week: 3,  pending: true, title: 'Business Credit & Financial Identity' },
+    { week: 4,  pending: true, title: 'Bookkeeping, Financials & Cash Flow' },
+    { week: 5,  pending: true, title: 'Building a Fundable Business Plan' },
+    { week: 6,  pending: true, title: 'Grants, Loans & Investor Capital' },
+    { week: 7,  pending: true, title: 'The Funding Pitch & Lender Relationships' },
+    { week: 8,  pending: true, title: 'Government Contracting & Procurement' },
+    { week: 9,  pending: true, title: 'Marketing, Branding & Digital Presence' },
+    { week: 10, pending: true, title: 'Operations, Scaling & Team Building' },
+    { week: 11, pending: true, title: 'Financial Management & Tax Strategy' },
+    { week: 12, pending: true, title: 'Funding Readiness Assessment & Next Steps' },
   ],
 };
