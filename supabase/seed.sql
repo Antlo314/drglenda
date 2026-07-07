@@ -33,7 +33,13 @@ on conflict (id) do update set
 -- ONE test per week, using the exact free-response questions from the curriculum.
 -- `published` gates student visibility: a test stays offline until an admin
 -- clicks "Go live" on the Sessions panel.
-insert into public.quizzes (id, session_id, type, title, max_score, prompt, questions, published) values
+insert into public.quizzes (id, session_id, type, title, max_score, prompt, questions, published, due_date) values
+('qwhy1','s1','manual','Week 1 — Why Section',100,null,
+ '[{"id":"qwhy1-1","prompt":"Why do I want a business?"},
+   {"id":"qwhy1-2","prompt":"Why? (Dig deeper — what is the deeper reason behind that?)"},
+   {"id":"qwhy1-3","prompt":"Why would you want to leave a legacy?"},
+   {"id":"qwhy1-4","prompt":"Why do I want financial stability?"},
+   {"id":"qwhy1-5","prompt":"Why is creating generational wealth and opportunity important?"}]', true, '2026-07-10'),
 ('qw1','s1','manual','Week 1 Test — Entrepreneurial Mindset & Business Foundation',100,null,
  '[{"id":"qw1-1","prompt":"What is a growth mindset?"},
    {"id":"qw1-2","prompt":"Why is goal setting important in business?"},
@@ -46,10 +52,11 @@ insert into public.quizzes (id, session_id, type, title, max_score, prompt, ques
    {"id":"qw1-9","prompt":"What are your operational goals?"},
    {"id":"qw1-10","prompt":"What are your marketing goals?"},
    {"id":"qw1-11","prompt":"Write a vision statement for your business."},
-   {"id":"qw1-12","prompt":"Write a personal vision statement for yourself."}]', true)
+   {"id":"qw1-12","prompt":"Write a personal vision statement for yourself."}]', true, '2026-07-13')
 on conflict (id) do update set
   session_id=excluded.session_id, type=excluded.type, title=excluded.title,
-  max_score=excluded.max_score, prompt=excluded.prompt, questions=excluded.questions;
+  max_score=excluded.max_score, prompt=excluded.prompt, questions=excluded.questions,
+  due_date=excluded.due_date;
   -- NOTE: `published` is intentionally NOT overwritten on re-seed, so re-running
   -- this file never takes a live test offline.
 

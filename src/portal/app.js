@@ -668,7 +668,7 @@ function quizView(user) {
   const kind = q.type === 'auto' ? 'Quiz' : written ? 'Test' : 'Assignment';
   const head = `
     <button class="back-link" data-action="go" data-route="session" data-id="${q.sessionId}">← ${esc(sx ? sx.title : 'Back')}</button>
-    <div class="page-head"><div><span class="eyebrow">${kind}</span><h1>${esc(q.title)}</h1></div></div>`;
+    <div class="page-head"><div><span class="eyebrow">${kind}${q.due ? ` · Due ${fmtDate(q.due)}` : ''}</span><h1>${esc(q.title)}</h1></div></div>`;
 
   /* ---- written test (free-response, instructor-graded) ---- */
   if (written) {
@@ -803,7 +803,7 @@ function studentTests(user) {
   <div class="page-head"><h1>My Tests</h1><p class="muted">Your quizzes and assignments across the program.</p></div>
   <section class="panel">
     <table class="data-table">
-      <thead><tr><th>Test</th><th>Type</th><th>Status</th><th>Score</th><th></th></tr></thead>
+      <thead><tr><th>Test</th><th>Type</th><th>Due</th><th>Status</th><th>Score</th><th></th></tr></thead>
       <tbody>
         ${quizzes
           .map((q) => {
@@ -815,10 +815,12 @@ function studentTests(user) {
               : `<span class="pill pill-pending">Pending review</span>`;
             const score = sub && sub.status === 'graded' ? `${sub.score}${q.type === 'manual' ? '/100' : '%'}` : '—';
             const type = q.type === 'auto' ? 'Quiz' : isWritten(q) ? 'Test' : 'Assignment';
+            const due = q.due ? fmtDate(q.due) : '—';
             const cta = !sub ? 'Start' : 'View';
             return `<tr>
               <td><strong>${esc(q.title)}</strong></td>
               <td>${type}</td>
+              <td>${due}</td>
               <td>${status}</td>
               <td>${score}</td>
               <td><button class="btn btn-ghost btn-sm" data-action="go" data-route="quiz" data-id="${q.id}">${cta} →</button></td>
@@ -1133,7 +1135,7 @@ function adminContent() {
             ${qz
               .map(
                 (q) => `<div class="quiz-live-row">
-              <span class="qlr-title">${esc(q.title)}</span>
+              <span class="qlr-title">${esc(q.title)}${q.due ? ` <span class="muted">· due ${fmtDate(q.due)}</span>` : ''}</span>
               ${q.published
                 ? `<span class="pill pill-done">● Live</span>`
                 : `<span class="pill pill-todo">Offline</span>`}

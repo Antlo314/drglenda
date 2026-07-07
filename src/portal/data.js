@@ -20,9 +20,28 @@ const WEEK1_TEST = {
   sessionId: 's1',
   type: 'manual',
   published: true, // active — students can answer to build their portfolio
+  due: '2026-07-13', // Monday
   title: 'Week 1 Test — Entrepreneurial Mindset & Business Foundation',
   maxScore: 100,
   questions: (week1?.quiz || []).map((prompt, i) => ({ id: `qw1-${i + 1}`, prompt })),
+};
+
+// Week 1 "Why" reflection — a separate portfolio deliverable, due before the quiz.
+const WEEK1_WHY = {
+  id: 'qwhy1',
+  sessionId: 's1',
+  type: 'manual',
+  published: true, // active now
+  due: '2026-07-10', // Friday
+  title: 'Week 1 — Why Section',
+  maxScore: 100,
+  questions: [
+    { id: 'qwhy1-1', prompt: 'Why do I want a business?' },
+    { id: 'qwhy1-2', prompt: 'Why? (Dig deeper — what is the deeper reason behind that?)' },
+    { id: 'qwhy1-3', prompt: 'Why would you want to leave a legacy?' },
+    { id: 'qwhy1-4', prompt: 'Why do I want financial stability?' },
+    { id: 'qwhy1-5', prompt: 'Why is creating generational wealth and opportunity important?' },
+  ],
 };
 
 // NOTE: passwords are plaintext here ONLY because this is a front-end demo with
@@ -127,10 +146,10 @@ export const SEED = {
   ],
 
   // ---- Tests / quizzes -------------------------------------------------------
-  // ONE test per week, built from the exact quiz questions in curriculum.js
-  // (the single source of truth). Written tests are free-response and
+  // Week 1 deliverables: the "Why" reflection (due Fri) + the quiz (due Mon,
+  // questions from curriculum.js). Written tests are free-response and
   // instructor-graded; `published` stays false until an admin sets them "live".
-  quizzes: [WEEK1_TEST],
+  quizzes: [WEEK1_WHY, WEEK1_TEST],
 
   // ---- Per-student progress + quiz submissions -------------------------------
   // completed: array of session ids the student has finished

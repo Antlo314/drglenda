@@ -6,26 +6,40 @@
 --  curriculum. Adds:
 --    • quizzes.published  — a test stays hidden from students until an admin
 --      clicks "Go live" on the Sessions panel.
---    • The Week 1 written test (Entrepreneurial Mindset & Business Foundation):
---      the curriculum questions PLUS portfolio prompts (SMART goal, revenue goal,
---      financial/operational/marketing goals, business + personal vision
---      statements). Instructor-graded. Set LIVE at launch.
+--    • Two Week 1 deliverables, both LIVE at launch, instructor-graded:
+--        – "Why Section" (5 reflection questions) — due Fri 2026-07-10
+--        – "Week 1 Test" (curriculum questions + portfolio prompts: SMART goal,
+--          revenue goal, financial/operational/marketing goals, business +
+--          personal vision statements) — due Mon 2026-07-13
 --    • Removes the old multiple-choice sample quizzes (q1–q4).
 -- ============================================================================
 
--- 1) Add the go-live flag. New tests default to OFFLINE (published = false), so
+-- 1) Add the go-live flag + optional due date. New tests default to OFFLINE, so
 --    nothing shows to students until an admin sets it live from the portal.
 alter table public.quizzes
   add column if not exists published boolean not null default false;
+alter table public.quizzes
+  add column if not exists due_date date;
 
 -- 2) Remove the sample multiple-choice quizzes (demo content, not real coursework).
 --    Cascades to any submissions for those quizzes (none expected before launch).
 delete from public.quizzes where id in ('q1','q2','q3','q4');
 
--- 3) Seed the Week 1 written test and set it LIVE (published = true) so students
---    can start answering to build their portfolio. Linked to session s1.
-insert into public.quizzes (id, session_id, type, title, max_score, prompt, questions, published)
-values (
+-- 3) Seed both Week 1 deliverables and set them LIVE (published = true) so
+--    students can start answering. Both linked to session s1.
+insert into public.quizzes (id, session_id, type, title, max_score, prompt, questions, published, due_date)
+values
+(
+  'qwhy1', 's1', 'manual', 'Week 1 — Why Section',
+  100, null,
+  '[{"id":"qwhy1-1","prompt":"Why do I want a business?"},
+    {"id":"qwhy1-2","prompt":"Why? (Dig deeper — what is the deeper reason behind that?)"},
+    {"id":"qwhy1-3","prompt":"Why would you want to leave a legacy?"},
+    {"id":"qwhy1-4","prompt":"Why do I want financial stability?"},
+    {"id":"qwhy1-5","prompt":"Why is creating generational wealth and opportunity important?"}]'::jsonb,
+  true, '2026-07-10'
+),
+(
   'qw1', 's1', 'manual',
   'Week 1 Test — Entrepreneurial Mindset & Business Foundation',
   100, null,
@@ -41,7 +55,7 @@ values (
     {"id":"qw1-10","prompt":"What are your marketing goals?"},
     {"id":"qw1-11","prompt":"Write a vision statement for your business."},
     {"id":"qw1-12","prompt":"Write a personal vision statement for yourself."}]'::jsonb,
-  true
+  true, '2026-07-13'
 )
 on conflict (id) do update set
   session_id = excluded.session_id,
@@ -50,8 +64,9 @@ on conflict (id) do update set
   max_score  = excluded.max_score,
   prompt     = excluded.prompt,
   questions  = excluded.questions,
+  due_date   = excluded.due_date,
   published  = true;   -- activate Week 1 now (per request)
 
 -- 4) Confirm.
-select id, title, type, published, jsonb_array_length(questions) as num_questions
-from public.quizzes order by published desc, id;
+select id, title, published, due_date, jsonb_array_length(questions) as num_questions
+from public.quizzes order by due_date, id;
