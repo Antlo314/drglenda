@@ -46,6 +46,13 @@ export const CURRICULUM = {
         'What is the purpose of a business vision statement?',
         'Name two characteristics of successful entrepreneurs.',
         'What is entrepreneurial readiness?',
+        'Set a SMART goal for your business — make it Specific, Measurable, Achievable, Relevant, and Time-bound.',
+        'Complete and expand on this goal: “I will increase my monthly revenue by ______.” (Tip: a revenue target paired with a customer-retention strategy is a cheat code that shows lenders you can sustain growth.)',
+        'What are your financial goals?',
+        'What are your operational goals?',
+        'What are your marketing goals?',
+        'Write a vision statement for your business.',
+        'Write a personal vision statement for yourself.',
       ],
     },
 

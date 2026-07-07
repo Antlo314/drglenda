@@ -39,7 +39,14 @@ insert into public.quizzes (id, session_id, type, title, max_score, prompt, ques
    {"id":"qw1-2","prompt":"Why is goal setting important in business?"},
    {"id":"qw1-3","prompt":"What is the purpose of a business vision statement?"},
    {"id":"qw1-4","prompt":"Name two characteristics of successful entrepreneurs."},
-   {"id":"qw1-5","prompt":"What is entrepreneurial readiness?"}]', false)
+   {"id":"qw1-5","prompt":"What is entrepreneurial readiness?"},
+   {"id":"qw1-6","prompt":"Set a SMART goal for your business — make it Specific, Measurable, Achievable, Relevant, and Time-bound."},
+   {"id":"qw1-7","prompt":"Complete and expand on this goal: “I will increase my monthly revenue by ______.” (Tip: a revenue target paired with a customer-retention strategy is a cheat code that shows lenders you can sustain growth.)"},
+   {"id":"qw1-8","prompt":"What are your financial goals?"},
+   {"id":"qw1-9","prompt":"What are your operational goals?"},
+   {"id":"qw1-10","prompt":"What are your marketing goals?"},
+   {"id":"qw1-11","prompt":"Write a vision statement for your business."},
+   {"id":"qw1-12","prompt":"Write a personal vision statement for yourself."}]', true)
 on conflict (id) do update set
   session_id=excluded.session_id, type=excluded.type, title=excluded.title,
   max_score=excluded.max_score, prompt=excluded.prompt, questions=excluded.questions;

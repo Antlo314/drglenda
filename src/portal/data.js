@@ -19,7 +19,7 @@ const WEEK1_TEST = {
   id: 'qw1',
   sessionId: 's1',
   type: 'manual',
-  published: false,
+  published: true, // active — students can answer to build their portfolio
   title: 'Week 1 Test — Entrepreneurial Mindset & Business Foundation',
   maxScore: 100,
   questions: (week1?.quiz || []).map((prompt, i) => ({ id: `qw1-${i + 1}`, prompt })),
