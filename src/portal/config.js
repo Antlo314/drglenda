@@ -15,3 +15,9 @@ export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 /** True when both keys are present → use the real backend. */
 export const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+
+/**
+ * Temporarily hide the recorded Class Sessions from students (admins still see
+ * and manage them). Flip to `false` and redeploy to unlock for everyone.
+ */
+export const SESSIONS_LOCKED = true;

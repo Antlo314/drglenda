@@ -9,7 +9,7 @@ import {
   signUp, requestPasswordReset, updatePassword, updateDisplayName, onAuthEvent,
 } from './auth.js';
 import { downloadCSV, exportPDF, exportWord } from './export.js';
-import { USE_SUPABASE } from './config.js';
+import { USE_SUPABASE, SESSIONS_LOCKED } from './config.js';
 import { CURRICULUM } from './curriculum.js';
 
 const app = document.getElementById('app');
@@ -484,11 +484,20 @@ function adminMaterialsPanel() {
 /* ===========================================================================
    STUDENT VIEWS
    ======================================================================== */
+/** Class Sessions are locked for students (admins keep full access). */
+const sessionsLocked = (user) => SESSIONS_LOCKED && !!user && user.role !== 'admin';
+const SESSIONS_LOCK_NOTE = `
+  <section class="panel"><div class="empty">
+    <div class="empty-ico">🔒</div>
+    <h3>Class sessions are coming soon</h3>
+    <p class="muted">Your recorded sessions will unlock here shortly. In the meantime, head to <strong>My Tests</strong> to complete this week’s work.</p>
+  </div></section>`;
+
 function studentNav(user) {
   return [
     { route: 'student-home', label: 'Dashboard', icon: '▥' },
     { route: 'curriculum', label: 'Curriculum', icon: '❖' },
-    { route: 'student-sessions', label: 'Class Sessions', icon: '▶' },
+    { route: 'student-sessions', label: SESSIONS_LOCKED ? 'Class Sessions 🔒' : 'Class Sessions', icon: '▶' },
     { route: 'student-tests', label: 'My Tests', icon: '✓' },
     { route: 'account', label: 'Account', icon: '⚙' },
   ];
@@ -515,8 +524,11 @@ function studentHome(user) {
   </div>
 
   ${
-    next
-      ? `<section class="panel">
+    sessionsLocked(user)
+      ? SESSIONS_LOCK_NOTE
+      : `${
+          next
+            ? `<section class="panel">
           <div class="panel-head"><h2>Continue learning</h2></div>
           <div class="continue" data-action="go" data-route="session" data-id="${next.id}">
             <img src="${esc(next.thumb)}" alt="" />
@@ -528,9 +540,9 @@ function studentHome(user) {
             </div>
           </div>
         </section>`
-      : `<section class="panel"><div class="panel-head"><h2>🎉 You’ve completed every published session</h2></div>
+            : `<section class="panel"><div class="panel-head"><h2>🎉 You’ve completed every published session</h2></div>
          <p class="muted">New sessions are released weekly through the 12-week program.</p></section>`
-  }
+        }
 
   <section class="panel">
     <div class="panel-head"><h2>All class sessions</h2>
@@ -547,10 +559,14 @@ function studentHome(user) {
         })
         .join('')}
     </div>
-  </section>`;
+  </section>`
+  }`;
 }
 
 function studentSessions(user) {
+  if (sessionsLocked(user)) {
+    return `<div class="page-head"><h1>Class Sessions</h1></div>${SESSIONS_LOCK_NOTE}`;
+  }
   const prog = store.getProgress(user.id);
   const sessions = store.getSessions();
   return `
@@ -576,6 +592,10 @@ function studentSessions(user) {
 }
 
 function sessionDetail(user) {
+  if (sessionsLocked(user)) {
+    return `<button class="back-link" data-action="go" data-route="student-home">← Back</button>
+    <div class="page-head"><h1>Class Sessions</h1></div>${SESSIONS_LOCK_NOTE}`;
+  }
   const sx = store.getSessionById(route.params.id);
   if (!sx) return `<p>Session not found.</p>`;
   const prog = store.getProgress(user.id);
