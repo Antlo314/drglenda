@@ -67,6 +67,10 @@ function toast(msg) {
 /* ---- app state ------------------------------------------------------------ */
 let route = { name: null, params: {} };
 let crm = { view: 'leads', q: '', status: 'all', adding: false, editingId: null, notesOpen: new Set() };
+// Discussion composer draft, kept across live re-renders so an incoming message
+// never wipes what a student is typing. `focusAfterRender` re-focuses the box
+// right after they post.
+let disc = { draft: '', focusAfterRender: false };
 
 // logged-out auth screens
 let authScreen = 'login'; // 'login' | 'signup' | 'forgot'
@@ -96,6 +100,7 @@ function liveRerender() {
 async function enterApp(user) {
   await store.hydrate(user);
   store.startRealtime(user, liveRerender);
+  store.startDiscussionRealtime(user, liveRerender);
   go(user.role === 'admin' ? 'admin-home' : 'student-home');
 }
 
@@ -482,6 +487,81 @@ function adminMaterialsPanel() {
 }
 
 /* ===========================================================================
+   CLASS DISCUSSION (shared — students & admins)
+   ======================================================================== */
+/** Friendly, compact timestamp for a chat message. */
+function fmtWhen(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const now = new Date();
+  const diffSec = (now - d) / 1000;
+  if (diffSec < 45) return 'just now';
+  if (diffSec < 3600) return `${Math.max(1, Math.floor(diffSec / 60))}m ago`;
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+/** One message in the class feed. */
+function discussionMessage(p, user) {
+  const mine = p.authorId === user.id;
+  const isInstructor = p.authorRole === 'admin';
+  const canDelete = mine || user.role === 'admin';
+  const author = { id: p.authorId || 'anon', name: p.authorName || 'Student' };
+  return `<div class="disc-msg${mine ? ' is-mine' : ''}${isInstructor ? ' is-instructor' : ''}">
+    ${avatar(author, 40)}
+    <div class="disc-bubble">
+      <div class="disc-meta">
+        <strong>${esc(p.authorName || 'Student')}${mine ? ' (you)' : ''}</strong>
+        ${isInstructor ? `<span class="disc-tag">Instructor</span>` : ''}
+        <span class="disc-time">${esc(fmtWhen(p.createdAt))}</span>
+        ${canDelete ? `<button class="disc-del" data-action="delete-post" data-id="${esc(p.id)}" title="Delete message" aria-label="Delete message">🗑</button>` : ''}
+      </div>
+      <p class="disc-body">${esc(p.body).replace(/\n/g, '<br />')}</p>
+    </div>
+  </div>`;
+}
+
+function discussionView(user) {
+  const posts = store.getDiscussion();
+  const week1 = CURRICULUM.weeks.find((w) => w.week === 1);
+  const prompt = week1 && !week1.pending ? week1.discussion : '';
+
+  const feed = posts.length
+    ? posts.map((p) => discussionMessage(p, user)).join('')
+    : `<div class="disc-empty">
+        <div class="empty-ico">💬</div>
+        <h3>Start the conversation</h3>
+        <p class="muted">Be the first to post — share your Discussion Post answer or ask the class a question.</p>
+      </div>`;
+
+  return `
+  <div class="page-head"><div>
+    <span class="eyebrow">Class Community</span>
+    <h1>Class Discussion</h1>
+    <p class="muted">Post your discussion answers, ask questions, and connect with your classmates.</p>
+  </div></div>
+
+  ${prompt ? `<div class="disc-prompt">
+    <span class="disc-prompt-label">This week’s discussion prompt</span>
+    <p>“${esc(prompt)}”</p>
+  </div>` : ''}
+
+  <section class="panel disc-panel no-pad">
+    <div class="disc-feed" id="discFeed">${feed}</div>
+    <form id="discForm" class="disc-composer">
+      ${avatar(user, 38)}
+      <textarea id="discInput" name="body" rows="1" maxlength="2000"
+        placeholder="Write a message to the class…  (Enter to post, Shift+Enter for a new line)"
+        data-action="disc-input"></textarea>
+      <button type="submit" class="btn btn-primary btn-sm">Post</button>
+    </form>
+  </section>
+  <p class="muted disc-foot">Visible to everyone in your cohort${USE_SUPABASE ? ' · updates live' : ''}. Please keep it respectful and supportive. 💛</p>`;
+}
+
+/* ===========================================================================
    STUDENT VIEWS
    ======================================================================== */
 /** Class Sessions are locked for students (admins keep full access). */
@@ -499,6 +579,7 @@ function studentNav(user) {
     { route: 'curriculum', label: 'Curriculum', icon: '❖' },
     { route: 'student-sessions', label: SESSIONS_LOCKED ? 'Class Sessions 🔒' : 'Class Sessions', icon: '▶' },
     { route: 'student-tests', label: 'My Tests', icon: '✓' },
+    { route: 'discussion', label: 'Discussion', icon: '💬' },
     { route: 'account', label: 'Account', icon: '⚙' },
   ];
 }
@@ -864,6 +945,7 @@ function adminNav() {
     { route: 'admin-crm', label: 'CRM', icon: '☎' },
     { route: 'admin-content', label: 'Sessions', icon: '▶' },
     { route: 'curriculum', label: 'Curriculum', icon: '❖' },
+    { route: 'discussion', label: 'Discussion', icon: '💬' },
     { route: 'admin-access', label: 'Access', icon: '🔑' },
     { route: 'account', label: 'Account', icon: '⚙' },
   ];
@@ -1496,6 +1578,10 @@ function recordForm(lead) {
    RENDER
    ======================================================================== */
 function render() {
+  // Was the student mid-message when this re-render fired? (a live post arriving
+  // shouldn't steal focus from the composer). Checked before we replace the DOM.
+  const discWasFocused = document.activeElement?.id === 'discInput';
+
   // Arrived via a password-reset link — force the "set new password" screen.
   if (recoveryMode) {
     app.innerHTML = viewReset();
@@ -1509,7 +1595,7 @@ function render() {
   }
 
   if (user.role === 'student') {
-    const allowed = ['student-home', 'curriculum', 'student-sessions', 'student-tests', 'session', 'quiz', 'account'];
+    const allowed = ['student-home', 'curriculum', 'student-sessions', 'student-tests', 'session', 'quiz', 'discussion', 'account'];
     if (!allowed.includes(route.name)) route = { name: 'student-home', params: {} };
     const views = {
       'student-home': studentHome,
@@ -1518,12 +1604,13 @@ function render() {
       'student-tests': studentTests,
       session: sessionDetail,
       quiz: quizView,
+      discussion: discussionView,
       account: accountView,
     };
     const content = (views[route.name] || studentHome)(user);
     app.innerHTML = shell(user, studentNav(user), content);
   } else {
-    const allowed = ['admin-home', 'admin-students', 'admin-student', 'admin-grading', 'grade', 'admin-crm', 'admin-content', 'curriculum', 'admin-access', 'account'];
+    const allowed = ['admin-home', 'admin-students', 'admin-student', 'admin-grading', 'grade', 'admin-crm', 'admin-content', 'curriculum', 'discussion', 'admin-access', 'account'];
     if (!allowed.includes(route.name)) route = { name: 'admin-home', params: {} };
     const views = {
       'admin-home': adminHome,
@@ -1534,6 +1621,7 @@ function render() {
       'admin-crm': adminCRM,
       'admin-content': adminContent,
       curriculum: curriculumView,
+      discussion: () => discussionView(user),
       'admin-access': adminAccess,
       account: () => accountView(user),
     };
@@ -1551,6 +1639,24 @@ function render() {
       el.value = v; // caret to end
     }
     render._refocusSearch = false;
+  }
+
+  // Discussion: pin the feed to the newest message, restore the in-progress
+  // draft, and keep focus if the student was typing or just posted.
+  const feedEl = document.getElementById('discFeed');
+  if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
+  const composerEl = document.getElementById('discInput');
+  if (composerEl) {
+    if (composerEl.value !== disc.draft) composerEl.value = disc.draft;
+    composerEl.style.height = 'auto';
+    composerEl.style.height = `${Math.min(composerEl.scrollHeight, 140)}px`;
+    if (discWasFocused || disc.focusAfterRender) {
+      composerEl.focus();
+      const v = composerEl.value;
+      composerEl.value = '';
+      composerEl.value = v; // caret to end
+    }
+    disc.focusAfterRender = false;
   }
 }
 
@@ -1582,6 +1688,7 @@ app.addEventListener('click', async (e) => {
       break;
     case 'logout':
       store.stopRealtime();
+      store.stopDiscussionRealtime();
       await logout();
       route = { name: null, params: {} };
       authScreen = 'login';
@@ -1602,6 +1709,18 @@ app.addEventListener('click', async (e) => {
       if (confirm(`Delete “${mat?.title || 'this material'}”? This can't be undone.`)) {
         store.deleteMaterial(d.id);
         toast('Material deleted');
+        render();
+      }
+      break;
+    }
+    case 'delete-post': {
+      const user = currentUser();
+      const post = store.getDiscussion().find((p) => p.id === d.id);
+      if (!post) break;
+      const mine = post.authorId === user.id;
+      if (confirm(mine ? 'Delete your message?' : `Delete ${post.authorName || 'this'}’s message?`)) {
+        store.deleteDiscussionPost(d.id);
+        toast('Message deleted');
         render();
       }
       break;
@@ -1949,6 +2068,17 @@ app.addEventListener('submit', async (e) => {
     return;
   }
 
+  if (form.id === 'discForm') {
+    const user = currentUser();
+    const body = form.body.value.trim();
+    if (!body) return;
+    store.addDiscussionPost(user, body);
+    disc.draft = '';
+    disc.focusAfterRender = true; // keep the composer focused so they can keep chatting
+    render();
+    return;
+  }
+
   if (form.id === 'gradeForm') {
     const score = Number(form.score.value);
     store.gradeSubmission(form.dataset.student, form.dataset.quiz, score, form.feedback.value.trim(), todayISO());
@@ -1965,6 +2095,19 @@ app.addEventListener('input', (e) => {
     crm.q = e.target.value;
     render._refocusSearch = true;
     render();
+  } else if (hit.action === 'disc-input') {
+    // Capture the draft (so a live re-render can't lose it) and auto-grow the box.
+    disc.draft = e.target.value;
+    e.target.style.height = 'auto';
+    e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
+  }
+});
+
+/* Enter posts the message; Shift+Enter inserts a newline (chat convention). */
+app.addEventListener('keydown', (e) => {
+  if (e.target.id === 'discInput' && e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    e.target.closest('form')?.requestSubmit();
   }
 });
 
@@ -2083,6 +2226,7 @@ onAuthEvent((event) => {
     if (user && !recoveryMode) {
       await store.hydrate(user);
       store.startRealtime(user, liveRerender);
+      store.startDiscussionRealtime(user, liveRerender);
     }
   } catch (err) {
     console.error('[portal] startup error:', err);

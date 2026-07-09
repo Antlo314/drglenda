@@ -24,7 +24,7 @@ let errorHandler = null;
 let state = USE_SUPABASE ? emptyState() : loadLocal();
 
 function emptyState() {
-  return { users: [], sessions: [], quizzes: [], progress: {}, leads: [], allowedStudents: [], materials: [] };
+  return { users: [], sessions: [], quizzes: [], progress: {}, leads: [], allowedStudents: [], materials: [], discussion: [] };
 }
 function loadLocal() {
   try {
@@ -134,6 +134,13 @@ const mapProfile = (r) => ({
   title: r.title, cohort: r.cohort, enrolled: d10(r.enrolled), plan: r.plan,
   grantAwarded: !!r.grant_awarded, grantAmount: Number(r.grant_amount) || 0,
 });
+// A class-discussion post. `author_name`/`author_role` are denormalized on the
+// row (set server-side) so every classmate can see who wrote it — students can't
+// read each other's `profiles` rows under RLS.
+const mapPost = (r) => ({
+  id: r.id, authorId: r.author_id, authorName: r.author_name || 'Student',
+  authorRole: r.author_role || 'student', body: r.body || '', createdAt: r.created_at,
+});
 const mapSubmission = (r) => ({
   type: r.type, status: r.status, score: r.score, total: r.total,
   correct: r.correct, answer: r.answer, answers: r.answers,
@@ -180,6 +187,13 @@ export async function hydrate(user) {
       if (!sg.error) fileMaterials[i].playUrl = sg.signedUrl;
     });
   }
+
+  // class discussion board — visible to every authenticated user (student + admin)
+  const { data: posts } = await supabase
+    .from('discussion_posts')
+    .select('*')
+    .order('created_at', { ascending: true });
+  next.discussion = (posts || []).map(mapPost);
 
   // people: admin sees everyone, a student sees just themselves
   const { data: profiles } = isAdmin
@@ -236,6 +250,12 @@ export const getVisibleQuizzesForSession = (sid) =>
   state.quizzes.filter((q) => q.published && q.sessionId === sid).sort(byDue);
 export const getLeads = () =>
   [...state.leads].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+
+/** The class discussion feed, oldest → newest (the view pins to the latest). */
+export const getDiscussion = () =>
+  [...(state.discussion || [])].sort((a, b) =>
+    String(a.createdAt).localeCompare(String(b.createdAt))
+  );
 
 export function getProgress(studentId) {
   return state.progress[studentId] || { completed: [], submissions: {} };
@@ -779,5 +799,89 @@ export function deleteMaterial(id) {
   push(() => supabase.from('class_materials').delete().eq('id', id));
   if (m && m.isFile && m.storagePath) {
     push(() => supabase.storage.from('session-media').remove([m.storagePath]));
+  }
+}
+
+/* ===========================================================================
+   CLASS DISCUSSION — a shared student-to-student board (realtime in Supabase)
+   ======================================================================== */
+/** Post a message to the class board. Optimistic: shows immediately, then
+ *  reconciles the temp id + timestamp with the row the database returns. */
+export function addDiscussionPost(user, body) {
+  const text = String(body || '').trim();
+  if (!text || !user) return { ok: false, error: 'Write a message first.' };
+  const tempId = `d-${Date.now()}`;
+  const local = {
+    id: tempId,
+    authorId: user.id,
+    authorName: user.name || 'Student',
+    authorRole: user.role || 'student',
+    body: text,
+    createdAt: new Date().toISOString(),
+  };
+  const next = structuredClone(state);
+  (next.discussion ??= []).push(local);
+  set(next);
+
+  if (!USE_SUPABASE || !supabase) return { ok: true };
+  // The DB trigger (see discussion.sql) authoritatively stamps author identity;
+  // we still send it for the optimistic row and reconcile from what comes back.
+  Promise.resolve(
+    supabase
+      .from('discussion_posts')
+      .insert({ author_id: user.id, author_name: local.authorName, author_role: local.authorRole, body: text })
+      .select()
+      .single()
+  )
+    .then(({ data, error }) => {
+      if (error) return reportError(error);
+      if (!data) return;
+      const cur = structuredClone(state);
+      const row = (cur.discussion || []).find((p) => p.id === tempId);
+      if (row) {
+        row.id = data.id;
+        row.createdAt = data.created_at || row.createdAt;
+        row.authorName = data.author_name || row.authorName;
+        row.authorRole = data.author_role || row.authorRole;
+      }
+      set(cur);
+    })
+    .catch(reportError);
+  return { ok: true };
+}
+
+/** Remove a post. RLS lets a student delete only their own; admins delete any. */
+export function deleteDiscussionPost(id) {
+  const next = structuredClone(state);
+  next.discussion = (next.discussion || []).filter((p) => p.id !== id);
+  set(next);
+  push(() => supabase.from('discussion_posts').delete().eq('id', id));
+}
+
+/* Realtime for the discussion board — runs for EVERY signed-in user (unlike the
+   admin-only CRM channel) so new posts appear live for the whole class. */
+let discussionChannel = null;
+
+export function startDiscussionRealtime(user, onChange) {
+  if (!USE_SUPABASE || !user || discussionChannel) return;
+  discussionChannel = supabase
+    .channel('class-discussion')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'discussion_posts' }, async () => {
+      const { data } = await supabase
+        .from('discussion_posts')
+        .select('*')
+        .order('created_at', { ascending: true });
+      const next = structuredClone(state);
+      next.discussion = (data || []).map(mapPost);
+      set(next);
+      onChange?.();
+    })
+    .subscribe();
+}
+
+export function stopDiscussionRealtime() {
+  if (discussionChannel) {
+    supabase.removeChannel(discussionChannel);
+    discussionChannel = null;
   }
 }

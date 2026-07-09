@@ -245,4 +245,23 @@ export const SEED = {
     { id: 'm4', sessionId: 's4', kind: 'video', title: 'Business plan walkthrough (recording)', url: '/umof-class.mp4' },
     { id: 'm5', sessionId: 's4', kind: 'pdf',   title: 'One-Page Business Plan template', url: '/assets/week1-worksheet.pdf' },
   ],
+
+  // ---- Class discussion board (student-to-student chat) ----------------------
+  // A shared, real-time class feed where students post their Discussion Post
+  // answers, ask questions, and support one another; the instructor can join in.
+  // Oldest first (the view renders chronologically and pins to the newest).
+  discussion: [
+    { id: 'd1', authorId: 'u-admin', authorName: 'Dr. Glenda S. Williams', authorRole: 'admin',
+      body: 'Welcome to the class discussion board! 🎉 This is your space to post your Discussion Post answers, ask questions, and support one another. Kick us off with this week’s prompt: “What motivated you to become an entrepreneur, and what challenges do you anticipate facing?”',
+      createdAt: '2026-07-06T18:05:00' },
+    { id: 'd2', authorId: 'u-maya', authorName: 'Maya Thompson', authorRole: 'student',
+      body: 'So excited to be here! I started my business because I want to build something my kids can inherit. My biggest worry is the funding side — that’s exactly why I signed up.',
+      createdAt: '2026-07-06T19:12:00' },
+    { id: 'd3', authorId: 'u-jordan', authorName: 'Jordan Ellis', authorRole: 'student',
+      body: 'Same here, Maya! For me it’s about freedom and financial stability. Quick question for the group — did anyone else find the 5 C’s of Credit in Session 1 eye-opening? I had no idea “Character” actually counted.',
+      createdAt: '2026-07-07T08:41:00' },
+    { id: 'd4', authorId: 'u-priya', authorName: 'Priya Nair', authorRole: 'student',
+      body: 'Yes, Jordan — the Character piece surprised me too! My anticipated challenge is keeping my books clean enough for a lender to trust them. Does anyone have a bookkeeping tool they love?',
+      createdAt: '2026-07-07T13:20:00' },
+  ],
 };

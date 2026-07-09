@@ -228,7 +228,7 @@ function initChat() {
       card.remove();
       addMessage(
         'assistant',
-        `Thank you, ${name.split(' ')[0]}! ✅ I've shared your details with the UMOF team — they'll be in touch soon. To secure your seat now, you can register here: ${ENROLL_URL} (sign-up deadline July 2nd).`
+        `Thank you, ${name.split(' ')[0]}! ✅ I've shared your details with the UMOF team — they'll be in touch soon. The current cohort is already in session; to reserve your place in the next one, you can register here: ${ENROLL_URL}.`
       );
     });
   }
