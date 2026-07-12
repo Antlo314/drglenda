@@ -64,6 +64,8 @@ button { font-family: inherit; }
 .link-arrow:hover { color: var(--gold); }
 .back-link { background: none; border: 0; color: var(--muted); font-weight: 600; font-size: 0.88rem; cursor: pointer; margin-bottom: 14px; }
 .back-link:hover { color: var(--maroon); }
+.back-row { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-bottom: 4px; }
+.back-row .back-link { margin-bottom: 10px; }
 
 /* =============== AUTH =============== */
 .auth-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px;
@@ -473,10 +475,39 @@ ol.wk-steps li::before { content: counter(step); counter-increment: step;
 .wk-discuss { font-style: italic; border-left-color: var(--maroon); }
 .curric-note { margin-top: 14px; font-size: 0.88rem; text-align: center; }
 
+/* Admin curriculum editor */
+.curric-edit-overview .curric-edit-grid { margin-top: 4px; }
+.curric-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+}
+.curric-edit-grow { grid-column: span 1; }
+.curric-edit-full { grid-column: 1 / -1; }
+.curric-edit-body .field { margin-top: 12px; }
+.curric-edit-body .field:first-child { margin-top: 0; }
+.curric-edit-body .field em { font-style: normal; font-weight: 500; }
+.curric-edit-body textarea { min-height: 72px; resize: vertical; }
+.curric-toggle .check-inline {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px; border: 1.5px solid var(--line-strong); border-radius: var(--radius-sm);
+  background: var(--cream); font-weight: 500; font-size: 0.9rem; cursor: pointer;
+}
+.curric-toggle .check-inline input { margin-top: 3px; accent-color: var(--maroon); }
+.curric-edit-actions {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line);
+}
+.wk-edit > summary .pill { flex: none; font-size: 0.72rem; }
+.wk-edit > summary { gap: 12px; }
+
 @media (max-width: 540px) {
   .curric-meta { grid-template-columns: 1fr; }
+  .curric-edit-grid { grid-template-columns: 1fr; }
+  .curric-edit-grow, .curric-edit-full { grid-column: 1; }
   .wk > summary { padding: 14px 16px; gap: 10px; }
   .wk-body { padding: 4px 16px 16px; }
+  .curric-edit-actions { flex-direction: column; align-items: stretch; }
 }
 
 /* =============== CLASS MATERIALS =============== */

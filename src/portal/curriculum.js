@@ -1,13 +1,13 @@
 /* =============================================================================
-   UMOF Learning Portal — Course curriculum (syllabus)
+   UMOF Learning Portal — Course curriculum (syllabus) DEFAULT
    -----------------------------------------------------------------------------
-   The official 12-week syllabus for "The Entrepreneur's Journey: Funding
-   Masterclass." This is the course OUTLINE (objectives, steps, assignment,
-   discussion prompt, weekly quiz) — distinct from `sessions` in data.js, which
-   are the recorded class videos + notes. Rendered read-only behind the login
-   for both students and admins (see curriculumView in app.js).
+   Default seed for "The Entrepreneur's Journey: Funding Masterclass."
+   Live data lives in store.js (localStorage / Supabase). Admins fully edit
+   the syllabus in the portal Curriculum page; this file is only the initial
+   template for new demos / empty databases.
 
-   To publish a week, fill in its fields and remove `pending: true`.
+   Distinct from `sessions` (recorded videos + notes). A week with
+   `pending: true` shows as "coming soon" to students until an admin publishes it.
    ========================================================================== */
 
 export const CURRICULUM = {

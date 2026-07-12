@@ -17,6 +17,7 @@ steps once and it becomes a real, secure, multi-user system. ~15 minutes.
 1. In the project: **SQL Editor → New query**.
 2. Paste the entire contents of [`supabase/schema.sql`](supabase/schema.sql) → **Run**. (Creates tables, security rules, and the auto-profile trigger.)
 3. New query again → paste [`supabase/seed.sql`](supabase/seed.sql) → **Run**. (Loads the 6 sessions, their quizzes, and sample CRM leads.)
+4. New query → paste [`supabase/curriculum.sql`](supabase/curriculum.sql) → **Run**. (Admin-editable course syllabus; seeds the default 12-week outline without overwriting later edits.)
 
 ## 3. Add your keys to the app
 1. In Supabase: **Project Settings → API**. Copy the **Project URL** and the **anon public** key.
@@ -45,7 +46,7 @@ automatically on signup (via a trigger).
 2. **Make yourself the admin.** In **SQL Editor**, run (use your email):
    ```sql
    update public.profiles set role = 'admin',
-          name = 'Dr. Glenda S. Williams',
+          name = 'Dr. Glenda S. Williams, CFWF',
           title = 'Founder & Lead Instructor'
    where email = 'you@umof.org';
    ```

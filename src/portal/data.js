@@ -47,12 +47,23 @@ const WEEK1_WHY = {
 // NOTE: passwords are plaintext here ONLY because this is a front-end demo with
 // no server. Real auth (hashed passwords / magic links) arrives with the backend.
 export const SEED = {
+  // ---- Course syllabus (admin-editable in the Curriculum page) --------------
+  curriculum: {
+    title: CURRICULUM.title,
+    tagline: CURRICULUM.tagline,
+    length: CURRICULUM.length,
+    format: CURRICULUM.format,
+    learningStyle: CURRICULUM.learningStyle,
+    description: CURRICULUM.description,
+    weeks: CURRICULUM.weeks.map((w) => ({ ...w })),
+  },
+
   // ---- People who can log in -------------------------------------------------
   users: [
     {
       id: 'u-admin',
       role: 'admin',
-      name: 'Dr. Glenda S. Williams',
+      name: 'Dr. Glenda S. Williams, CFWF',
       email: 'admin@umof.org',
       password: 'admin1234',
       title: 'Founder & Lead Instructor',
@@ -251,7 +262,7 @@ export const SEED = {
   // answers, ask questions, and support one another; the instructor can join in.
   // Oldest first (the view renders chronologically and pins to the newest).
   discussion: [
-    { id: 'd1', authorId: 'u-admin', authorName: 'Dr. Glenda S. Williams', authorRole: 'admin',
+    { id: 'd1', authorId: 'u-admin', authorName: 'Dr. Glenda S. Williams, CFWF', authorRole: 'admin',
       body: 'Welcome to the class discussion board! 🎉 This is your space to post your Discussion Post answers, ask questions, and support one another. Kick us off with this week’s prompt: “What motivated you to become an entrepreneur, and what challenges do you anticipate facing?”',
       createdAt: '2026-07-06T18:05:00' },
     { id: 'd2', authorId: 'u-maya', authorName: 'Maya Thompson', authorRole: 'student',

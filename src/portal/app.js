@@ -10,9 +10,11 @@ import {
 } from './auth.js';
 import { downloadCSV, exportPDF, exportWord } from './export.js';
 import { USE_SUPABASE, SESSIONS_LOCKED } from './config.js';
-import { CURRICULUM } from './curriculum.js';
 
 const app = document.getElementById('app');
+
+/** Which curriculum week accordion stays open after a re-render (admin edits). */
+let curricOpenWeek = null;
 
 /* ---- small helpers -------------------------------------------------------- */
 const esc = (v) =>
@@ -323,8 +325,12 @@ const statCard = (label, value, sub = '') => `
   </div>`;
 
 /* ===========================================================================
-   CURRICULUM (shared — students & admins)
+   CURRICULUM (students: read-only · admins: fully editable)
    ======================================================================== */
+function linesText(arr) {
+  return (arr || []).join('\n');
+}
+
 function weekBlock(w, open) {
   const head = `<summary>
       <span class="wk-num">Week ${w.week}</span>
@@ -333,33 +339,102 @@ function weekBlock(w, open) {
     </summary>`;
 
   if (w.pending) {
-    return `<details class="wk wk-pending"${open ? ' open' : ''}>
+    return `<details class="wk wk-pending"${open ? ' open' : ''} data-week="${w.week}">
       ${head}
       <div class="wk-body"><p class="muted">The detailed curriculum for this week will be published here.</p></div>
     </details>`;
   }
 
-  const section = (label, inner) => `<div class="wk-sec"><h3>${esc(label)}</h3>${inner}</div>`;
-  const list = (items, ordered) =>
-    `<${ordered ? 'ol' : 'ul'} class="wk-list${ordered ? ' wk-steps' : ''}">${items
+  const section = (label, inner) =>
+    inner ? `<div class="wk-sec"><h3>${esc(label)}</h3>${inner}</div>` : '';
+  const list = (items, ordered) => {
+    if (!items?.length) return '';
+    return `<${ordered ? 'ol' : 'ul'} class="wk-list${ordered ? ' wk-steps' : ''}">${items
       .map((it) => `<li>${esc(it)}</li>`)
       .join('')}</${ordered ? 'ol' : 'ul'}>`;
+  };
 
-  return `<details class="wk"${open ? ' open' : ''}>
+  return `<details class="wk"${open ? ' open' : ''} data-week="${w.week}">
     ${head}
     <div class="wk-body">
       ${section('Learning Objectives', list(w.objectives, false))}
       ${section('Step-by-Step Guide', list(w.steps, true))}
-      ${section('Assignment', `<p class="wk-callout wk-assign">${esc(w.assignment)}</p>`)}
-      ${section('Discussion Post', `<p class="wk-callout wk-discuss">“${esc(w.discussion)}”</p>`)}
+      ${section('Assignment', w.assignment ? `<p class="wk-callout wk-assign">${esc(w.assignment)}</p>` : '')}
+      ${section('Discussion Post', w.discussion ? `<p class="wk-callout wk-discuss">“${esc(w.discussion)}”</p>` : '')}
       ${section('Weekly Quiz', list(w.quiz, true))}
     </div>
   </details>`;
 }
 
-function curriculumView() {
-  const c = CURRICULUM;
-  return `
+/** Admin editor for one week — list fields are one item per line. */
+function weekEditor(w, open) {
+  const wk = w.week;
+  const published = !w.pending;
+  return `<details class="wk wk-edit${w.pending ? ' wk-pending' : ''}"${open ? ' open' : ''} data-week="${wk}">
+    <summary>
+      <span class="wk-num">Week ${wk}</span>
+      <span class="wk-title">${esc(w.title || 'Untitled week')}</span>
+      <span class="pill ${published ? 'pill-done' : 'pill-todo'}">${published ? 'Published' : 'Coming soon'}</span>
+      <span class="wk-chev" aria-hidden="true">▾</span>
+    </summary>
+    <div class="wk-body curric-edit-body">
+      <div class="curric-edit-grid">
+        <label class="field"><span>Week #</span>
+          <input type="number" min="1" max="52" value="${wk}"
+            data-action="curric-week-num" data-week="${wk}" /></label>
+        <label class="field curric-edit-grow"><span>Week title</span>
+          <input type="text" value="${esc(w.title || '')}" placeholder="e.g. Business Structure &amp; Legal Foundation"
+            data-action="curric-week-title" data-week="${wk}" /></label>
+        <label class="field curric-toggle">
+          <span>Visibility</span>
+          <label class="check-inline">
+            <input type="checkbox" data-action="curric-week-pending" data-week="${wk}"
+              ${w.pending ? 'checked' : ''} />
+            <span>Coming soon (hide details from students)</span>
+          </label>
+        </label>
+      </div>
+      <label class="field"><span>Learning objectives <em class="muted">(one per line)</em></span>
+        <textarea rows="4" placeholder="Understand the entrepreneurial journey.&#10;Identify characteristics of successful entrepreneurs."
+          data-action="curric-week-objectives" data-week="${wk}">${esc(linesText(w.objectives))}</textarea>
+      </label>
+      <label class="field"><span>Step-by-step guide <em class="muted">(one per line)</em></span>
+        <textarea rows="4" placeholder="Define your Why.&#10;Identify your target market."
+          data-action="curric-week-steps" data-week="${wk}">${esc(linesText(w.steps))}</textarea>
+      </label>
+      <label class="field"><span>Assignment</span>
+        <textarea rows="2" placeholder="Create a one-page Business Vision Plan."
+          data-action="curric-week-assignment" data-week="${wk}">${esc(w.assignment || '')}</textarea>
+      </label>
+      <label class="field"><span>Discussion prompt</span>
+        <textarea rows="2" placeholder="What motivated you to become an entrepreneur?"
+          data-action="curric-week-discussion" data-week="${wk}">${esc(w.discussion || '')}</textarea>
+      </label>
+      <label class="field"><span>Weekly quiz questions <em class="muted">(one per line)</em></span>
+        <textarea rows="6" placeholder="What is a growth mindset?&#10;Why is goal setting important in business?"
+          data-action="curric-week-quiz" data-week="${wk}">${esc(linesText(w.quiz))}</textarea>
+      </label>
+      <div class="curric-edit-actions">
+        <button type="button" class="btn btn-outline btn-sm" data-action="delete-curric-week" data-week="${wk}">
+          Delete week
+        </button>
+        <span class="muted">Changes save when you leave a field</span>
+      </div>
+    </div>
+  </details>`;
+}
+
+function curriculumView(user) {
+  const c = store.getCurriculum();
+  const isAdmin = user?.role === 'admin';
+  const weeks = [...(c.weeks || [])].sort((a, b) => Number(a.week) - Number(b.week));
+  const openWeek =
+    curricOpenWeek != null
+      ? curricOpenWeek
+      : weeks[0]?.week ?? null;
+
+  if (!isAdmin) {
+    return `
   <div class="page-head"><div>
     <span class="eyebrow">Course Syllabus</span>
     <h1>${esc(c.title)}</h1>
@@ -379,9 +454,51 @@ function curriculumView() {
   <div class="panel-head curric-weeks-head"><h2>Weekly Curriculum</h2>
     <span class="muted">Click a week to expand</span></div>
   <div class="curric-weeks">
-    ${c.weeks.map((w, i) => weekBlock(w, i === 0)).join('')}
+    ${weeks.map((w) => weekBlock(w, Number(w.week) === Number(openWeek))).join('')}
   </div>
   <p class="curric-note muted">New weeks are released each week through the ${esc(String(parseInt(c.length, 10) || ''))}-week program.</p>`;
+  }
+
+  /* ---- Admin editor ---- */
+  return `
+  <div class="page-head"><div>
+    <span class="eyebrow">Course Syllabus · Admin</span>
+    <h1>Edit Curriculum</h1>
+    <p class="muted">Fully customize the course outline students see. Changes save automatically.</p>
+  </div>
+  <button type="button" class="btn btn-primary" data-action="add-curric-week">+ Add week</button>
+  </div>
+
+  <section class="panel curric-overview curric-edit-overview">
+    <div class="panel-head"><h2>Course overview</h2>
+      <span class="muted">Title, length, format &amp; description</span></div>
+    <div class="curric-edit-grid">
+      <label class="field curric-edit-grow"><span>Course title</span>
+        <input type="text" value="${esc(c.title || '')}" data-action="curric-meta-title" /></label>
+      <label class="field curric-edit-grow"><span>Tagline</span>
+        <input type="text" value="${esc(c.tagline || '')}" data-action="curric-meta-tagline" /></label>
+      <label class="field"><span>Course length</span>
+        <input type="text" value="${esc(c.length || '')}" placeholder="12 Weeks" data-action="curric-meta-length" /></label>
+      <label class="field"><span>Format</span>
+        <input type="text" value="${esc(c.format || '')}" placeholder="Online Instructor-Led" data-action="curric-meta-format" /></label>
+      <label class="field curric-edit-full"><span>Learning style</span>
+        <textarea rows="2" data-action="curric-meta-style">${esc(c.learningStyle || '')}</textarea></label>
+      <label class="field curric-edit-full"><span>Course description</span>
+        <textarea rows="4" data-action="curric-meta-desc">${esc(c.description || '')}</textarea></label>
+    </div>
+  </section>
+
+  <div class="panel-head curric-weeks-head"><h2>Weekly curriculum</h2>
+    <span class="muted">${weeks.length} week${weeks.length === 1 ? '' : 's'} · uncheck “Coming soon” to publish details</span></div>
+  <div class="curric-weeks">
+    ${
+      weeks.length
+        ? weeks.map((w) => weekEditor(w, Number(w.week) === Number(openWeek))).join('')
+        : `<div class="empty"><div class="empty-ico">❖</div><h3>No weeks yet</h3>
+            <p class="muted">Add your first week to build the syllabus.</p>
+            <button type="button" class="btn btn-primary" data-action="add-curric-week">+ Add week</button></div>`
+    }
+  </div>`;
 }
 
 /* ===========================================================================
@@ -525,8 +642,10 @@ function discussionMessage(p, user) {
 
 function discussionView(user) {
   const posts = store.getDiscussion();
-  const week1 = CURRICULUM.weeks.find((w) => w.week === 1);
-  const prompt = week1 && !week1.pending ? week1.discussion : '';
+  const weeks = store.getCurriculum().weeks || [];
+  // Prefer the first published week that has a discussion prompt
+  const promptWeek = weeks.find((w) => !w.pending && w.discussion) || weeks.find((w) => w.discussion);
+  const prompt = promptWeek?.discussion || '';
 
   const feed = posts.length
     ? posts.map((p) => discussionMessage(p, user)).join('')
@@ -1088,10 +1207,12 @@ function adminStudentDetail() {
                   ? `<span class="pill pill-done">Graded</span>`
                   : `<span class="pill pill-pending">Needs grading</span>`;
               const score = sub.status === 'graded' ? `${sub.score}${q.type === 'manual' ? '/100' : '%'}` : '—';
-              const action =
-                sub.type === 'manual' && sub.status === 'submitted'
-                  ? `<button class="btn btn-primary btn-sm" data-action="go" data-route="grade" data-student="${s.id}" data-quiz="${q.id}">Grade →</button>`
-                  : '';
+              let action = '';
+              if (sub.status === 'graded') {
+                action = `<button class="btn btn-outline btn-sm" data-action="go" data-route="grade" data-student="${s.id}" data-quiz="${q.id}">Edit grade</button>`;
+              } else if (sub.type === 'manual' && sub.status === 'submitted') {
+                action = `<button class="btn btn-primary btn-sm" data-action="go" data-route="grade" data-student="${s.id}" data-quiz="${q.id}">Grade →</button>`;
+              }
               return `<tr><td><strong>${esc(q.title)}</strong></td><td>${status}</td><td>${score}</td><td>${action}</td></tr>`;
             })
             .join('')}
@@ -1103,9 +1224,11 @@ function adminStudentDetail() {
 
 function adminGrading() {
   const queue = store.getGradingQueue();
+  const graded = store.getGradedSubmissions();
   return `
-  <div class="page-head"><div><h1>Grading</h1><p class="muted">${queue.length} submission${queue.length === 1 ? '' : 's'} awaiting your review</p></div></div>
+  <div class="page-head"><div><h1>Grading</h1><p class="muted">${queue.length} submission${queue.length === 1 ? '' : 's'} awaiting your review · ${graded.length} graded (editable)</p></div></div>
   <section class="panel">
+    <div class="panel-head"><h2>Awaiting review</h2></div>
     ${
       queue.length
         ? `<div class="mini-list">${queue
@@ -1119,6 +1242,31 @@ function adminGrading() {
             .join('')}</div>`
         : `<div class="empty"><div class="empty-ico">✓</div><h3>All caught up</h3><p class="muted">There are no submissions waiting to be graded.</p></div>`
     }
+  </section>
+  <section class="panel">
+    <div class="panel-head"><h2>Graded scores</h2>
+      <span class="muted">Edit any score or feedback</span></div>
+    ${
+      graded.length
+        ? `<table class="data-table compact">
+        <thead><tr><th>Student</th><th>Test</th><th>Score</th><th>Graded</th><th></th></tr></thead>
+        <tbody>
+          ${graded
+            .map((g) => {
+              const unit = g.quiz.type === 'manual' ? '/100' : '%';
+              return `<tr>
+              <td><div class="cell-user">${avatar(g.student, 28)}<strong>${esc(g.student.name)}</strong></div></td>
+              <td>${esc(g.quiz.title)}</td>
+              <td><strong>${g.submission.score}${unit}</strong></td>
+              <td class="muted">${fmtDate(g.submission.gradedAt || g.submission.submittedAt)}</td>
+              <td><button class="btn btn-outline btn-sm" data-action="go" data-route="grade" data-student="${g.student.id}" data-quiz="${g.quizId}">Edit grade</button></td>
+            </tr>`;
+            })
+            .join('')}
+        </tbody>
+      </table>`
+        : `<p class="muted">No graded submissions yet. Scores appear here after you grade a test — you can edit them anytime.</p>`
+    }
   </section>`;
 }
 
@@ -1129,8 +1277,13 @@ function gradeView() {
   const sub = store.getProgress(studentId).submissions?.[quizId];
   if (!student || !quiz || !sub) return `<p>Submission not found.</p>`;
 
-  const submissionPanel = isWritten(quiz)
-    ? `<section class="panel"><div class="panel-head"><h2>Student answers</h2></div>
+  const isEdit = sub.status === 'graded';
+  const max = quiz.maxScore || 100;
+  const unit = quiz.type === 'manual' ? `/${max}` : '%';
+
+  let submissionPanel = '';
+  if (isWritten(quiz)) {
+    submissionPanel = `<section class="panel"><div class="panel-head"><h2>Student answers</h2></div>
         ${quiz.questions
           .map(
             (qq, i) => `<div class="review-q">
@@ -1139,28 +1292,59 @@ function gradeView() {
           </div>`
           )
           .join('')}
-      </section>`
-    : `<section class="panel"><div class="panel-head"><h2>Prompt</h2></div><p class="muted">${esc(quiz.prompt)}</p></section>
-  <section class="panel"><div class="panel-head"><h2>Student submission</h2></div><p class="answer-box">${esc(sub.answer)}</p></section>`;
+      </section>`;
+  } else if (quiz.type === 'auto' && quiz.questions?.length) {
+    submissionPanel = `<section class="panel"><div class="panel-head"><h2>Quiz review</h2>
+        <span class="muted">${sub.correct != null ? `${sub.correct} of ${sub.total} correct (auto)` : 'Auto-scored'}</span></div>
+        ${quiz.questions
+          .map((qq, i) => {
+            const chosen = sub.answers ? sub.answers[qq.id] : undefined;
+            return `<div class="review-q">
+            <p class="rq-prompt">${i + 1}. ${esc(qq.prompt)}</p>
+            ${(qq.options || [])
+              .map((opt, oi) => {
+                const isCorrect = oi === qq.correctIndex;
+                const isChosen = oi === chosen;
+                const cls = isCorrect ? 'opt-correct' : isChosen ? 'opt-wrong' : '';
+                const tag = isCorrect ? ' ✓' : isChosen ? ' ✗ their answer' : '';
+                return `<div class="opt ${cls}">${esc(opt)}${tag}</div>`;
+              })
+              .join('')}
+          </div>`;
+          })
+          .join('')}
+      </section>`;
+  } else {
+    submissionPanel = `<section class="panel"><div class="panel-head"><h2>Prompt</h2></div><p class="muted">${esc(quiz.prompt || '')}</p></section>
+  <section class="panel"><div class="panel-head"><h2>Student submission</h2></div><p class="answer-box">${esc(sub.answer || '—')}</p></section>`;
+  }
+
+  const meta = isEdit
+    ? `graded ${fmtDate(sub.gradedAt)} · score ${sub.score}${unit}`
+    : `submitted ${fmtDate(sub.submittedAt)}`;
 
   return `
-  <button class="back-link" data-action="go" data-route="admin-grading">← Grading queue</button>
+  <div class="back-row">
+    <button class="back-link" data-action="go" data-route="admin-student" data-id="${studentId}">← ${esc(student.name)}</button>
+    <button class="back-link" data-action="go" data-route="admin-grading">← Grading</button>
+  </div>
   <div class="page-head"><div class="cell-user big">${avatar(student, 48)}<div>
-    <h1>${esc(quiz.title)}</h1><p class="muted">${esc(student.name)} · submitted ${fmtDate(sub.submittedAt)}</p></div></div></div>
+    <h1>${esc(quiz.title)}</h1><p class="muted">${esc(student.name)} · ${meta}</p></div></div></div>
 
   ${submissionPanel}
 
   <form id="gradeForm" data-student="${studentId}" data-quiz="${quizId}" class="panel">
-    <div class="panel-head"><h2>Assign grade</h2></div>
+    <div class="panel-head"><h2>${isEdit ? 'Edit grade' : 'Assign grade'}</h2>
+      ${isEdit ? `<span class="pill pill-done">Currently ${sub.score}${unit}</span>` : ''}</div>
     <div class="grade-row">
-      <label class="field grade-score"><span>Score (0–${quiz.maxScore || 100})</span>
-        <input type="number" name="score" min="0" max="${quiz.maxScore || 100}" value="${sub.score ?? ''}" required />
+      <label class="field grade-score"><span>Score (0–${max}${quiz.type === 'auto' ? ', percent' : ''})</span>
+        <input type="number" name="score" min="0" max="${max}" step="1" value="${sub.score ?? ''}" required />
       </label>
     </div>
     <label class="field"><span>Feedback to student</span>
       <textarea name="feedback" rows="5" placeholder="What was strong, what to improve…">${esc(sub.feedback || '')}</textarea>
     </label>
-    <button type="submit" class="btn btn-primary">Save grade &amp; release to student</button>
+    <button type="submit" class="btn btn-primary">${isEdit ? 'Update grade' : 'Save grade &amp; release to student'}</button>
   </form>`;
 }
 
@@ -1599,7 +1783,7 @@ function render() {
     if (!allowed.includes(route.name)) route = { name: 'student-home', params: {} };
     const views = {
       'student-home': studentHome,
-      curriculum: curriculumView,
+      curriculum: () => curriculumView(user),
       'student-sessions': studentSessions,
       'student-tests': studentTests,
       session: sessionDetail,
@@ -1620,7 +1804,7 @@ function render() {
       grade: gradeView,
       'admin-crm': adminCRM,
       'admin-content': adminContent,
-      curriculum: curriculumView,
+      curriculum: () => curriculumView(user),
       discussion: () => discussionView(user),
       'admin-access': adminAccess,
       account: () => accountView(user),
@@ -1668,6 +1852,17 @@ function actionFrom(e) {
   return node ? { action: node.dataset.action, node } : null;
 }
 
+/* Remember which curriculum week accordion is open (survives re-renders). */
+app.addEventListener('toggle', (e) => {
+  const details = e.target;
+  if (!(details instanceof HTMLDetailsElement)) return;
+  if (!details.classList.contains('wk')) return;
+  if (details.open) {
+    const wk = details.dataset.week;
+    curricOpenWeek = wk != null ? Number(wk) : null;
+  }
+}, true);
+
 app.addEventListener('click', async (e) => {
   const hit = actionFrom(e);
   if (!hit) return;
@@ -1704,6 +1899,23 @@ app.addEventListener('click', async (e) => {
       toast('Removed from approved list');
       render();
       break;
+    case 'add-curric-week': {
+      const n = store.addCurriculumWeek();
+      curricOpenWeek = n;
+      toast(`Week ${n} added`);
+      render();
+      break;
+    }
+    case 'delete-curric-week': {
+      const wk = Number(d.week);
+      if (confirm(`Delete Week ${wk} from the curriculum? Students will no longer see it.`)) {
+        store.deleteCurriculumWeek(wk);
+        if (Number(curricOpenWeek) === wk) curricOpenWeek = null;
+        toast(`Week ${wk} deleted`);
+        render();
+      }
+      break;
+    }
     case 'delete-material': {
       const mat = store.getAllMaterials().find((m) => m.id === d.id);
       if (confirm(`Delete “${mat?.title || 'this material'}”? This can't be undone.`)) {
@@ -2080,10 +2292,24 @@ app.addEventListener('submit', async (e) => {
   }
 
   if (form.id === 'gradeForm') {
-    const score = Number(form.score.value);
-    store.gradeSubmission(form.dataset.student, form.dataset.quiz, score, form.feedback.value.trim(), todayISO());
-    toast('Grade saved & released ✓');
-    go('admin-grading');
+    const studentId = form.dataset.student;
+    const quizId = form.dataset.quiz;
+    const quiz = store.getQuizById(quizId);
+    const max = quiz?.maxScore || 100;
+    let score = Number(form.score.value);
+    if (!Number.isFinite(score)) {
+      toast('Enter a valid score');
+      return;
+    }
+    score = Math.round(score);
+    if (score < 0 || score > max) {
+      toast(`Score must be between 0 and ${max}`);
+      return;
+    }
+    const wasGraded = store.getProgress(studentId).submissions?.[quizId]?.status === 'graded';
+    store.gradeSubmission(studentId, quizId, score, form.feedback.value.trim(), todayISO());
+    toast(wasGraded ? 'Grade updated ✓' : 'Grade saved & released ✓');
+    go('admin-student', { id: studentId });
     return;
   }
 });
@@ -2201,6 +2427,72 @@ app.addEventListener('change', async (e) => {
       store.updateSession(s.id, { liveAt: node.value });
     });
     toast(`Week ${wNum} class time saved ✓`);
+    render();
+  } else if (action === 'curric-meta-title') {
+    store.updateCurriculumMeta({ title: node.value });
+    toast('Course title saved ✓');
+    render();
+  } else if (action === 'curric-meta-tagline') {
+    store.updateCurriculumMeta({ tagline: node.value });
+    toast('Tagline saved ✓');
+    render();
+  } else if (action === 'curric-meta-length') {
+    store.updateCurriculumMeta({ length: node.value });
+    toast('Course length saved ✓');
+    render();
+  } else if (action === 'curric-meta-format') {
+    store.updateCurriculumMeta({ format: node.value });
+    toast('Format saved ✓');
+    render();
+  } else if (action === 'curric-meta-style') {
+    store.updateCurriculumMeta({ learningStyle: node.value });
+    toast('Learning style saved ✓');
+    render();
+  } else if (action === 'curric-meta-desc') {
+    store.updateCurriculumMeta({ description: node.value });
+    toast('Description saved ✓');
+    render();
+  } else if (action === 'curric-week-num') {
+    const oldWeek = Number(node.dataset.week);
+    const newWeek = Number(node.value);
+    curricOpenWeek = newWeek;
+    store.updateCurriculumWeek(oldWeek, { week: newWeek });
+    toast(`Renumbered to Week ${newWeek} ✓`);
+    render();
+  } else if (action === 'curric-week-title') {
+    curricOpenWeek = Number(node.dataset.week);
+    store.updateCurriculumWeek(node.dataset.week, { title: node.value });
+    toast('Week title saved ✓');
+    render();
+  } else if (action === 'curric-week-pending') {
+    curricOpenWeek = Number(node.dataset.week);
+    store.updateCurriculumWeek(node.dataset.week, { pending: node.checked });
+    toast(node.checked ? 'Marked coming soon (hidden details)' : 'Week published to students ✓');
+    render();
+  } else if (action === 'curric-week-objectives') {
+    curricOpenWeek = Number(node.dataset.week);
+    store.updateCurriculumWeek(node.dataset.week, { objectives: node.value });
+    toast('Objectives saved ✓');
+    render();
+  } else if (action === 'curric-week-steps') {
+    curricOpenWeek = Number(node.dataset.week);
+    store.updateCurriculumWeek(node.dataset.week, { steps: node.value });
+    toast('Steps saved ✓');
+    render();
+  } else if (action === 'curric-week-assignment') {
+    curricOpenWeek = Number(node.dataset.week);
+    store.updateCurriculumWeek(node.dataset.week, { assignment: node.value });
+    toast('Assignment saved ✓');
+    render();
+  } else if (action === 'curric-week-discussion') {
+    curricOpenWeek = Number(node.dataset.week);
+    store.updateCurriculumWeek(node.dataset.week, { discussion: node.value });
+    toast('Discussion prompt saved ✓');
+    render();
+  } else if (action === 'curric-week-quiz') {
+    curricOpenWeek = Number(node.dataset.week);
+    store.updateCurriculumWeek(node.dataset.week, { quiz: node.value });
+    toast('Quiz questions saved ✓');
     render();
   }
 });

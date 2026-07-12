@@ -16,6 +16,7 @@
 import { USE_SUPABASE } from './config.js';
 import { supabase } from './supabase.js';
 import { SEED } from './data.js';
+import { CURRICULUM as DEFAULT_CURRICULUM } from './curriculum.js';
 
 const KEY = 'umof_portal_v1';
 const listeners = new Set();
@@ -23,17 +24,33 @@ let errorHandler = null;
 
 let state = USE_SUPABASE ? emptyState() : loadLocal();
 
+function defaultCurriculum() {
+  return structuredClone(SEED.curriculum || DEFAULT_CURRICULUM);
+}
+
 function emptyState() {
-  return { users: [], sessions: [], quizzes: [], progress: {}, leads: [], allowedStudents: [], materials: [], discussion: [] };
+  return {
+    users: [], sessions: [], quizzes: [], progress: {}, leads: [],
+    allowedStudents: [], materials: [], discussion: [], curriculum: null,
+  };
 }
 function loadLocal() {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
+      let dirty = false;
       // Migration: consolidate all sessions into Week 1 / 2026-07-06
       if (parsed.sessions && parsed.sessions.some((s) => s.week !== 1 || s.date !== '2026-07-06')) {
         parsed.sessions = parsed.sessions.map((s) => ({ ...s, week: 1, date: '2026-07-06' }));
+        dirty = true;
+      }
+      // Migration: curriculum was previously a static module — fold into state
+      if (!parsed.curriculum || !Array.isArray(parsed.curriculum.weeks)) {
+        parsed.curriculum = defaultCurriculum();
+        dirty = true;
+      }
+      if (dirty) {
         try { localStorage.setItem(KEY, JSON.stringify(parsed)); } catch { /* ignore */ }
       }
       return parsed;
@@ -146,6 +163,40 @@ const mapSubmission = (r) => ({
   correct: r.correct, answer: r.answer, answers: r.answers,
   feedback: r.feedback, submittedAt: d10(r.submitted_at), gradedAt: d10(r.graded_at),
 });
+const mapCurriculum = (r) => ({
+  title: r.title || '',
+  tagline: r.tagline || '',
+  length: r.length || '',
+  format: r.format || '',
+  learningStyle: r.learning_style || '',
+  description: r.description || '',
+  weeks: Array.isArray(r.weeks) ? r.weeks : [],
+});
+const toLines = (v) => {
+  if (Array.isArray(v)) return v.map((s) => String(s).trim()).filter(Boolean);
+  return String(v ?? '')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
+};
+function persistCurriculum(c) {
+  push(() =>
+    supabase.from('curriculum').upsert(
+      {
+        id: 'main',
+        title: c.title || '',
+        tagline: c.tagline || '',
+        length: c.length || '',
+        format: c.format || '',
+        learning_style: c.learningStyle || '',
+        description: c.description || '',
+        weeks: c.weeks || [],
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'id' }
+    )
+  );
+}
 
 export async function hydrate(user) {
   if (!USE_SUPABASE) return; // local mode is already loaded
@@ -157,12 +208,20 @@ export async function hydrate(user) {
   const isAdmin = user.role === 'admin';
 
   // course content — visible to everyone authenticated
-  const [{ data: sessions }, { data: quizzes }] = await Promise.all([
+  const [{ data: sessions }, { data: quizzes }, curricRes] = await Promise.all([
     supabase.from('sessions').select('*'),
     supabase.from('quizzes').select('*'),
+    // Isolated so a missing curriculum migration never blocks the rest of hydrate
+    supabase.from('curriculum').select('*').eq('id', 'main').maybeSingle()
+      .then((r) => r)
+      .catch(() => ({ data: null, error: true })),
   ]);
   next.sessions = (sessions || []).map(mapSession);
   next.quizzes = (quizzes || []).map(mapQuiz);
+  // Single-row syllabus; fall back to the built-in default if empty / table missing
+  next.curriculum = curricRes?.data && !curricRes.error
+    ? mapCurriculum(curricRes.data)
+    : defaultCurriculum();
 
   // mint short-lived signed URLs for any sessions whose video lives in Storage
   const fileSessions = next.sessions.filter((s) => s.isFile && s.storagePath);
@@ -237,6 +296,14 @@ export const getStudents = () => state.users.filter((u) => u.role === 'student')
 export const getUserById = (id) => state.users.find((u) => u.id === id) || null;
 export const getSessions = () => [...state.sessions].sort((a, b) => a.week - b.week);
 export const getSessionById = (id) => state.sessions.find((s) => s.id === id) || null;
+
+/** Course syllabus (meta + weekly outline). Always returns a full object. */
+export function getCurriculum() {
+  if (!state.curriculum || !Array.isArray(state.curriculum.weeks)) {
+    return defaultCurriculum();
+  }
+  return state.curriculum;
+}
 export const getQuizzes = () => state.quizzes;
 export const getQuizById = (id) => state.quizzes.find((q) => q.id === id) || null;
 export const getQuizzesForSession = (sid) => state.quizzes.filter((q) => q.sessionId === sid);
@@ -294,6 +361,25 @@ export function getGradingQueue() {
   }
   return out.sort((a, b) =>
     String(a.submission.submittedAt).localeCompare(String(b.submission.submittedAt))
+  );
+}
+
+/** Graded submissions (any type) so admins can re-open and edit scores. */
+export function getGradedSubmissions() {
+  const out = [];
+  for (const student of getStudents()) {
+    const prog = getProgress(student.id);
+    for (const [quizId, sub] of Object.entries(prog.submissions || {})) {
+      if (sub.status === 'graded' && typeof sub.score === 'number') {
+        const quiz = getQuizById(quizId);
+        if (quiz) out.push({ student, quiz, submission: sub, quizId });
+      }
+    }
+  }
+  return out.sort((a, b) =>
+    String(b.submission.gradedAt || b.submission.submittedAt || '').localeCompare(
+      String(a.submission.gradedAt || a.submission.submittedAt || '')
+    )
   );
 }
 
@@ -383,6 +469,7 @@ export function setQuizPublished(quizId, published) {
   push(() => supabase.from('quizzes').update({ published }).eq('id', quizId));
 }
 
+/** Assign or update a grade (works for first-time grading and re-edits). */
 export function gradeSubmission(studentId, quizId, score, feedback, todayISO) {
   const next = structuredClone(state);
   const sub = next.progress[studentId]?.submissions?.[quizId];
@@ -632,6 +719,84 @@ export async function uploadSessionVideo(sessionId, file) {
    ======================================================================== */
 export function setSessionMeet(sessionId, { meetUrl, liveAt }) {
   updateSession(sessionId, { meetUrl, liveAt });
+}
+
+/* ===========================================================================
+   CURRICULUM — admin-editable course syllabus
+   ======================================================================== */
+export function updateCurriculumMeta(updates) {
+  const next = structuredClone(state);
+  const c = (next.curriculum ??= defaultCurriculum());
+  if (updates.title !== undefined) c.title = String(updates.title).trim();
+  if (updates.tagline !== undefined) c.tagline = String(updates.tagline).trim();
+  if (updates.length !== undefined) c.length = String(updates.length).trim();
+  if (updates.format !== undefined) c.format = String(updates.format).trim();
+  if (updates.learningStyle !== undefined) c.learningStyle = String(updates.learningStyle).trim();
+  if (updates.description !== undefined) c.description = String(updates.description).trim();
+  set(next);
+  persistCurriculum(c);
+}
+
+export function updateCurriculumWeek(weekNum, updates) {
+  const next = structuredClone(state);
+  const c = (next.curriculum ??= defaultCurriculum());
+  const w = c.weeks.find((x) => Number(x.week) === Number(weekNum));
+  if (!w) return;
+
+  if (updates.week !== undefined) {
+    const n = Number(updates.week);
+    if (Number.isFinite(n) && n >= 1) w.week = Math.round(n);
+  }
+  if (updates.title !== undefined) w.title = String(updates.title).trim();
+  if (updates.pending !== undefined) w.pending = !!updates.pending;
+  if (updates.objectives !== undefined) w.objectives = toLines(updates.objectives);
+  if (updates.steps !== undefined) w.steps = toLines(updates.steps);
+  if (updates.assignment !== undefined) w.assignment = String(updates.assignment).trim();
+  if (updates.discussion !== undefined) w.discussion = String(updates.discussion).trim();
+  if (updates.quiz !== undefined) w.quiz = toLines(updates.quiz);
+
+  // Publishing a week: if they uncheck "coming soon", ensure content arrays exist
+  if (updates.pending === false) {
+    w.objectives ??= [];
+    w.steps ??= [];
+    w.quiz ??= [];
+    w.assignment ??= '';
+    w.discussion ??= '';
+  }
+
+  c.weeks.sort((a, b) => Number(a.week) - Number(b.week));
+  set(next);
+  persistCurriculum(c);
+}
+
+/** Add a new week at the end of the syllabus. Returns the new week number. */
+export function addCurriculumWeek() {
+  const next = structuredClone(state);
+  const c = (next.curriculum ??= defaultCurriculum());
+  const maxWeek = c.weeks.reduce((m, w) => Math.max(m, Number(w.week) || 0), 0);
+  const week = maxWeek + 1;
+  c.weeks.push({
+    week,
+    pending: true,
+    title: `Week ${week} title`,
+    objectives: [],
+    steps: [],
+    assignment: '',
+    discussion: '',
+    quiz: [],
+  });
+  set(next);
+  persistCurriculum(c);
+  return week;
+}
+
+export function deleteCurriculumWeek(weekNum) {
+  const next = structuredClone(state);
+  const c = next.curriculum;
+  if (!c) return;
+  c.weeks = c.weeks.filter((w) => Number(w.week) !== Number(weekNum));
+  set(next);
+  persistCurriculum(c);
 }
 
 export function updateSession(sessionId, updates) {
