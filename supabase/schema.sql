@@ -149,6 +149,9 @@ create policy "submissions student update" on public.submissions for update
 create policy "submissions admin grade" on public.submissions for update
   using (public.current_user_role() = 'admin')
   with check (public.current_user_role() = 'admin');
+drop policy if exists "submissions admin insert" on public.submissions;
+create policy "submissions admin insert" on public.submissions for insert
+  with check (public.current_user_role() = 'admin');
 
 -- ── 6. LEADS — CRM prospects (admin-only) ──────────────────────────────────
 create table if not exists public.leads (

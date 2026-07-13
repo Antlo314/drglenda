@@ -71,6 +71,15 @@ New installs that run the full [`schema.sql`](supabase/schema.sql) already inclu
 They store optional grade metadata (`grade_derivation`, `question_scores`, `scoring_method`,
 `graded_by`) used by the portal’s **Grading Breakdown** when scoring written work.
 
+## Student work not showing in admin (fix)
+
+If students submit but nothing appears under **Grading**, run
+[`supabase/fix-submissions-visibility.sql`](supabase/fix-submissions-visibility.sql)
+once in the SQL Editor. That enables admin insert rights and Realtime on
+`submissions` / `profiles` so the grading queue updates without a hard reload.
+
+In the portal, use **↻ Refresh submissions** on the Grading page anytime.
+
 ---
 
 ## Add-ons (built — enable with one more SQL file)

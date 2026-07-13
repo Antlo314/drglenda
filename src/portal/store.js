@@ -87,12 +87,35 @@ function reportError(e) {
  *  Takes a THUNK so `supabase.from(...)` is only evaluated when connected —
  *  in demo mode `supabase` is null and must never be touched. */
 function push(queryFn) {
-  if (!USE_SUPABASE || !supabase) return;
-  Promise.resolve(queryFn())
+  if (!USE_SUPABASE || !supabase) return Promise.resolve({ ok: true });
+  return Promise.resolve(queryFn())
     .then((res) => {
-      if (res && res.error) reportError(res.error);
+      if (res && res.error) {
+        reportError(res.error);
+        return { ok: false, error: res.error };
+      }
+      return { ok: true, data: res?.data };
     })
-    .catch(reportError);
+    .catch((e) => {
+      reportError(e);
+      return { ok: false, error: e };
+    });
+}
+
+/** Await a Supabase write and return { ok, error? } without double-toasting when the caller handles it. */
+async function writeThrough(queryFn) {
+  if (!USE_SUPABASE || !supabase) return { ok: true };
+  try {
+    const res = await queryFn();
+    if (res && res.error) {
+      reportError(res.error);
+      return { ok: false, error: res.error.message || String(res.error) };
+    }
+    return { ok: true, data: res?.data };
+  } catch (e) {
+    reportError(e);
+    return { ok: false, error: e?.message || String(e) };
+  }
 }
 
 /** app.js registers a toast handler here so failed writes are visible. */
@@ -268,10 +291,14 @@ export async function hydrate(user) {
   if (!next.users.some((u) => u.id === user.id)) next.users.push(user);
 
   // progress (RLS already limits a student to their own rows)
-  const [{ data: completions }, { data: submissions }] = await Promise.all([
+  const [compRes, subRes] = await Promise.all([
     supabase.from('session_completions').select('*'),
     supabase.from('submissions').select('*'),
   ]);
+  if (compRes.error) reportError(compRes.error);
+  if (subRes.error) reportError(subRes.error);
+  const completions = compRes.data;
+  const submissions = subRes.data;
   const ensure = (pid) => (next.progress[pid] ??= { completed: [], submissions: {} });
   (completions || []).forEach((c) => ensure(c.profile_id).completed.push(c.session_id));
   (submissions || []).forEach((s) => (ensure(s.profile_id).submissions[s.quiz_id] = mapSubmission(s)));
@@ -369,30 +396,91 @@ export function getStudentStats(studentId) {
   };
 }
 
+/** Resolve a student for grading lists even if their profile role is odd. */
+function resolveStudent(studentId) {
+  const known = getUserById(studentId);
+  if (known) return known;
+  return {
+    id: studentId,
+    role: 'student',
+    name: 'Student (profile missing)',
+    email: '',
+    phone: '',
+    cohort: '',
+    plan: '',
+  };
+}
+
+/** Resolve a quiz row for grading lists even if the quiz was removed from catalog. */
+function resolveQuiz(quizId, sub) {
+  const q = getQuizById(quizId);
+  if (q) return q;
+  return {
+    id: quizId,
+    title: `Assignment (${quizId})`,
+    type: sub?.type || 'manual',
+    maxScore: 100,
+    prompt: '',
+    questions: [],
+    published: false,
+    due: null,
+    sessionId: null,
+  };
+}
+
+/**
+ * Profile ids that have progress, plus every enrolled student.
+ * Ensures submissions are visible even when a profile role was mis-set.
+ */
+function studentsForGrading() {
+  const byId = new Map();
+  for (const s of getStudents()) byId.set(s.id, s);
+  for (const pid of Object.keys(state.progress || {})) {
+    if (!byId.has(pid)) byId.set(pid, resolveStudent(pid));
+  }
+  return [...byId.values()];
+}
+
+/** True when a submission still needs instructor review. */
+function needsGrading(sub) {
+  if (!sub || sub.status !== 'submitted') return false;
+  // Auto quizzes are stored as graded; if one is stuck as submitted, still surface it.
+  if (sub.type === 'auto' && typeof sub.score === 'number') return false;
+  return true;
+}
+
 export function getGradingQueue() {
   const out = [];
-  for (const student of getStudents()) {
+  for (const student of studentsForGrading()) {
     const prog = getProgress(student.id);
     for (const [quizId, sub] of Object.entries(prog.submissions || {})) {
-      if (sub.type === 'manual' && sub.status === 'submitted') {
-        out.push({ student, quiz: getQuizById(quizId), submission: sub, quizId });
-      }
+      if (!needsGrading(sub)) continue;
+      out.push({
+        student,
+        quiz: resolveQuiz(quizId, sub),
+        submission: sub,
+        quizId,
+      });
     }
   }
   return out.sort((a, b) =>
-    String(a.submission.submittedAt).localeCompare(String(b.submission.submittedAt))
+    String(a.submission.submittedAt || '').localeCompare(String(b.submission.submittedAt || ''))
   );
 }
 
 /** Graded submissions (any type) so admins can re-open and edit scores. */
 export function getGradedSubmissions() {
   const out = [];
-  for (const student of getStudents()) {
+  for (const student of studentsForGrading()) {
     const prog = getProgress(student.id);
     for (const [quizId, sub] of Object.entries(prog.submissions || {})) {
       if (sub.status === 'graded' && typeof sub.score === 'number') {
-        const quiz = getQuizById(quizId);
-        if (quiz) out.push({ student, quiz, submission: sub, quizId });
+        out.push({
+          student,
+          quiz: resolveQuiz(quizId, sub),
+          submission: sub,
+          quizId,
+        });
       }
     }
   }
@@ -401,6 +489,49 @@ export function getGradedSubmissions() {
       String(a.submission.gradedAt || a.submission.submittedAt || '')
     )
   );
+}
+
+/**
+ * Re-fetch profiles + completions + submissions from Supabase into the cache.
+ * Call when the admin hits Refresh, or when realtime reports a change.
+ * Safe no-op in local demo mode.
+ */
+export async function refreshProgress() {
+  if (!USE_SUPABASE || !supabase) return { ok: true, count: 0 };
+  const next = structuredClone(state);
+
+  const [profRes, compRes, subRes] = await Promise.all([
+    supabase.from('profiles').select('*'),
+    supabase.from('session_completions').select('*'),
+    supabase.from('submissions').select('*'),
+  ]);
+  if (profRes.error) {
+    reportError(profRes.error);
+    return { ok: false, error: profRes.error.message };
+  }
+  if (compRes.error) {
+    reportError(compRes.error);
+    return { ok: false, error: compRes.error.message };
+  }
+  if (subRes.error) {
+    reportError(subRes.error);
+    return { ok: false, error: subRes.error.message };
+  }
+
+  next.users = (profRes.data || []).map(mapProfile);
+  next.progress = {};
+  const ensure = (pid) => (next.progress[pid] ??= { completed: [], submissions: {} });
+  (compRes.data || []).forEach((c) => ensure(c.profile_id).completed.push(c.session_id));
+  (subRes.data || []).forEach((s) => {
+    ensure(s.profile_id).submissions[s.quiz_id] = mapSubmission(s);
+  });
+  // Keep the signed-in user visible if profiles query omitted them for any reason
+  set(next);
+  return {
+    ok: true,
+    count: (subRes.data || []).length,
+    pending: getGradingQueue().length,
+  };
 }
 
 /* ===========================================================================
@@ -423,9 +554,9 @@ export function setSessionComplete(studentId, sessionId, complete) {
   );
 }
 
-export function submitAutoQuiz(studentId, quizId, answers, todayISO) {
+export async function submitAutoQuiz(studentId, quizId, answers, todayISO) {
   const quiz = getQuizById(quizId);
-  if (!quiz || quiz.type !== 'auto') return null;
+  if (!quiz || quiz.type !== 'auto') return { ok: false, error: 'Quiz not found.', score: 0, correct: 0, total: 0 };
   let correct = 0;
   quiz.questions.forEach((q) => {
     if (answers[q.id] === q.correctIndex) correct += 1;
@@ -440,7 +571,7 @@ export function submitAutoQuiz(studentId, quizId, answers, todayISO) {
     scoringMethod: 'auto', gradeDerivation, gradedAt: todayISO,
   };
   set(next);
-  push(() =>
+  const saved = await writeThrough(() =>
     supabase.from('submissions').upsert(
       {
         profile_id: studentId, quiz_id: quizId, type: 'auto', status: 'graded',
@@ -450,17 +581,17 @@ export function submitAutoQuiz(studentId, quizId, answers, todayISO) {
       { onConflict: 'profile_id,quiz_id' }
     )
   );
-  return { score, correct, total };
+  return { ok: saved.ok, error: saved.error, score, correct, total };
 }
 
-export function submitManual(studentId, quizId, answer, todayISO) {
+export async function submitManual(studentId, quizId, answer, todayISO) {
   const next = structuredClone(state);
   next.progress[studentId] ??= { completed: [], submissions: {} };
   next.progress[studentId].submissions[quizId] = {
     type: 'manual', status: 'submitted', submittedAt: todayISO, answer,
   };
   set(next);
-  push(() =>
+  return writeThrough(() =>
     supabase.from('submissions').upsert(
       { profile_id: studentId, quiz_id: quizId, type: 'manual', status: 'submitted', answer, submitted_at: todayISO },
       { onConflict: 'profile_id,quiz_id' }
@@ -470,14 +601,14 @@ export function submitManual(studentId, quizId, answer, todayISO) {
 
 /** Written test: student submits a free-response answer for each question.
  *  Answers are keyed by question id; the test then enters the grading queue. */
-export function submitWritten(studentId, quizId, answers, todayISO) {
+export async function submitWritten(studentId, quizId, answers, todayISO) {
   const next = structuredClone(state);
   next.progress[studentId] ??= { completed: [], submissions: {} };
   next.progress[studentId].submissions[quizId] = {
     type: 'manual', status: 'submitted', submittedAt: todayISO, answers,
   };
   set(next);
-  push(() =>
+  return writeThrough(() =>
     supabase.from('submissions').upsert(
       { profile_id: studentId, quiz_id: quizId, type: 'manual', status: 'submitted', answers, submitted_at: todayISO },
       { onConflict: 'profile_id,quiz_id' }
@@ -556,8 +687,11 @@ export function gradeSubmission(studentId, quizId, payload, feedbackOrToday, tod
   }
 
   const next = structuredClone(state);
-  const sub = next.progress[studentId]?.submissions?.[quizId];
-  if (!sub) return;
+  next.progress[studentId] ??= { completed: [], submissions: {} };
+  const sub = next.progress[studentId].submissions[quizId] || {
+    type: quiz?.type || 'manual',
+    submittedAt: date,
+  };
   sub.status = 'graded';
   sub.score = score;
   sub.feedback = feedback;
@@ -566,22 +700,43 @@ export function gradeSubmission(studentId, quizId, payload, feedbackOrToday, tod
   sub.scoringMethod = scoringMethod;
   sub.gradedBy = gradedBy;
   sub.gradedAt = date;
+  next.progress[studentId].submissions[quizId] = sub;
   set(next);
-  push(() =>
-    supabase
+  const gradePatch = {
+    status: 'graded',
+    score,
+    feedback,
+    grade_derivation: gradeDerivation,
+    question_scores: questionScores,
+    scoring_method: scoringMethod,
+    graded_by: gradedBy,
+    graded_at: date,
+  };
+  // Prefer UPDATE (admin RLS). If no row matches, INSERT via upsert so the
+  // grade is not lost when the student submission was missing client-side.
+  push(async () => {
+    const upd = await supabase
       .from('submissions')
-      .update({
-        status: 'graded',
-        score,
-        feedback,
-        grade_derivation: gradeDerivation,
-        question_scores: questionScores,
-        scoring_method: scoringMethod,
-        graded_by: gradedBy,
-        graded_at: date,
-      })
+      .update(gradePatch)
       .match({ profile_id: studentId, quiz_id: quizId })
-  );
+      .select('id');
+    if (upd.error) return upd;
+    if (upd.data && upd.data.length > 0) return upd;
+    return supabase.from('submissions').upsert(
+      {
+        profile_id: studentId,
+        quiz_id: quizId,
+        type: sub.type || quiz?.type || 'manual',
+        ...gradePatch,
+        submitted_at: sub.submittedAt || date,
+        answers: sub.answers ?? null,
+        answer: sub.answer ?? null,
+        total: sub.total ?? null,
+        correct: sub.correct ?? null,
+      },
+      { onConflict: 'profile_id,quiz_id' }
+    );
+  });
 }
 
 /**
@@ -784,15 +939,15 @@ export function removeAllowedStudent(email) {
 }
 
 /* ===========================================================================
-   REALTIME — live CRM (admin only, Supabase mode)
+   REALTIME — live CRM + grading queue (admin only, Supabase mode)
    ======================================================================== */
 let realtimeChannel = null;
 
-/** Subscribe to leads changes; onChange() is called after the cache updates. */
+/** Subscribe to leads + submissions + profiles so grading updates live. */
 export function startRealtime(user, onChange) {
   if (!USE_SUPABASE || !user || user.role !== 'admin' || realtimeChannel) return;
   realtimeChannel = supabase
-    .channel('crm-leads')
+    .channel('admin-live')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, async () => {
       const { data } = await supabase.from('leads').select('*');
       const next = structuredClone(state);
@@ -801,6 +956,14 @@ export function startRealtime(user, onChange) {
         grantAwarded: !!l.grant_awarded, grantAmount: Number(l.grant_amount) || 0,
       }));
       set(next);
+      onChange?.();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'submissions' }, async () => {
+      await refreshProgress();
+      onChange?.();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, async () => {
+      await refreshProgress();
       onChange?.();
     })
     .subscribe();

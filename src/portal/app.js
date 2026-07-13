@@ -1121,12 +1121,18 @@ function adminHome() {
   const queue = store.getGradingQueue();
   const leads = store.getLeads();
   const activeLeads = leads.filter((l) => l.status !== 'lost' && l.status !== 'enrolled').length;
-  const avgCompletion = Math.round(
-    students.reduce((sum, s) => sum + store.getStudentStats(s.id).completionPct, 0) / students.length
-  );
+  const avgCompletion = students.length
+    ? Math.round(
+        students.reduce((sum, s) => sum + store.getStudentStats(s.id).completionPct, 0) / students.length
+      )
+    : 0;
 
   return `
-  <div class="page-head"><div><h1>Instructor Dashboard</h1><p class="muted">Summer 2026 cohort · Funding Masterclass · full admin control</p></div></div>
+  <div class="page-head"><div><h1>Instructor Dashboard</h1><p class="muted">Summer 2026 cohort · Funding Masterclass · full admin control</p></div>
+    <div class="head-actions">
+      <button class="btn btn-outline btn-sm" data-action="refresh-progress" title="Reload student submissions from the server">↻ Refresh</button>
+    </div>
+  </div>
 
   <div class="stat-grid">
     ${statCard('Enrolled students', students.length)}
@@ -1137,7 +1143,12 @@ function adminHome() {
 
   <div class="two-col">
     <section class="panel">
-      <div class="panel-head"><h2>Grading queue</h2>${queue.length ? `<button class="btn btn-ghost btn-sm" data-action="go" data-route="admin-grading">View all →</button>` : ''}</div>
+      <div class="panel-head"><h2>Grading queue</h2>
+        <div class="head-actions">
+          <button class="btn btn-ghost btn-sm" data-action="refresh-progress">↻ Refresh</button>
+          ${queue.length ? `<button class="btn btn-ghost btn-sm" data-action="go" data-route="admin-grading">View all →</button>` : ''}
+        </div>
+      </div>
       ${
         queue.length
           ? `<div class="mini-list">${queue
@@ -1145,12 +1156,12 @@ function adminHome() {
               .map(
                 (g) => `<button class="mini-row" data-action="go" data-route="grade" data-student="${g.student.id}" data-quiz="${g.quizId}">
             ${avatar(g.student, 32)}
-            <span class="mr-main"><strong>${esc(g.student.name)}</strong><small>${esc(g.quiz.title)}</small></span>
+            <span class="mr-main"><strong>${esc(g.student.name || g.student.email || 'Student')}</strong><small>${esc(g.quiz?.title || g.quizId)}</small></span>
             <span class="pill pill-pending">Submitted ${fmtDate(g.submission.submittedAt)}</span>
           </button>`
               )
               .join('')}</div>`
-          : `<p class="muted">No submissions waiting. 🎉</p>`
+          : `<p class="muted">No submissions waiting. If a student just turned work in, click <strong>Refresh</strong>.</p>`
       }
     </section>
 
@@ -1176,6 +1187,7 @@ function adminStudents() {
   return `
   <div class="page-head"><div><h1>Students</h1><p class="muted">${students.length} enrolled · open a student for detail and grading</p></div>
     <div class="head-actions">
+      <button class="btn btn-outline btn-sm" data-action="refresh-progress" title="Reload student submissions from the server">↻ Refresh</button>
       <button class="btn btn-outline btn-sm" data-action="export-students-csv">⬇ CSV</button>
       <button class="btn btn-outline btn-sm" data-action="export-students-word">⬇ Word</button>
       <button class="btn btn-outline btn-sm" data-action="export-students-pdf">⬇ PDF</button>
@@ -1240,12 +1252,15 @@ function adminStudentDetail() {
     </section>
 
     <section class="panel">
-      <div class="panel-head"><h2>Tests &amp; assignments</h2></div>
+      <div class="panel-head"><h2>Tests &amp; assignments</h2>
+        <button class="btn btn-ghost btn-sm" data-action="refresh-progress">↻ Refresh</button>
+      </div>
       <table class="data-table compact">
         <thead><tr><th>Test</th><th>Status</th><th>Score</th><th></th></tr></thead>
         <tbody>
-          ${quizzes
-            .map((q) => {
+          ${(() => {
+            const catalogIds = new Set(quizzes.map((q) => q.id));
+            const rows = quizzes.map((q) => {
               const sub = prog.submissions?.[q.id];
               if (!sub) return `<tr><td>${esc(q.title)}</td><td><span class="pill pill-todo">Not started</span></td><td>—</td><td></td></tr>`;
               const status =
@@ -1256,12 +1271,31 @@ function adminStudentDetail() {
               let action = '';
               if (sub.status === 'graded') {
                 action = `<button class="btn btn-outline btn-sm" data-action="go" data-route="grade" data-student="${s.id}" data-quiz="${q.id}">Edit</button>`;
-              } else if (sub.type === 'manual' && sub.status === 'submitted') {
+              } else if (sub.status === 'submitted') {
                 action = `<button class="btn btn-primary btn-sm" data-action="go" data-route="grade" data-student="${s.id}" data-quiz="${q.id}">Grade →</button>`;
               }
               return `<tr><td><strong>${esc(q.title)}</strong></td><td>${status}</td><td>${score}</td><td>${action}</td></tr>`;
-            })
-            .join('')}
+            });
+            // Submissions whose quiz id is no longer in the catalog still need to show.
+            for (const [quizId, sub] of Object.entries(prog.submissions || {})) {
+              if (catalogIds.has(quizId)) continue;
+              const status =
+                sub.status === 'graded'
+                  ? `<span class="pill pill-done">Graded</span>`
+                  : `<span class="pill pill-pending">Needs grading</span>`;
+              const score = sub.status === 'graded' ? `${sub.score}/100` : '—';
+              const action =
+                sub.status === 'graded'
+                  ? `<button class="btn btn-outline btn-sm" data-action="go" data-route="grade" data-student="${s.id}" data-quiz="${quizId}">Edit</button>`
+                  : sub.status === 'submitted'
+                    ? `<button class="btn btn-primary btn-sm" data-action="go" data-route="grade" data-student="${s.id}" data-quiz="${quizId}">Grade →</button>`
+                    : '';
+              rows.push(
+                `<tr><td><strong>${esc(quizId)}</strong> <span class="muted">(legacy)</span></td><td>${status}</td><td>${score}</td><td>${action}</td></tr>`
+              );
+            }
+            return rows.join('');
+          })()}
         </tbody>
       </table>
     </section>
@@ -1272,11 +1306,16 @@ function adminGrading() {
   const queue = store.getGradingQueue();
   const graded = store.getGradedSubmissions();
   return `
-  <div class="page-head"><div><h1>Grading</h1><p class="muted">${queue.length} submission${queue.length === 1 ? '' : 's'} awaiting your review · ${graded.length} graded (use <strong>Edit</strong> to update)</p></div></div>
+  <div class="page-head"><div><h1>Grading</h1><p class="muted">${queue.length} submission${queue.length === 1 ? '' : 's'} awaiting your review · ${graded.length} graded (use <strong>Edit</strong> to update)</p></div>
+    <div class="head-actions">
+      <button class="btn btn-outline btn-sm" data-action="refresh-progress" title="Reload student submissions from the server">↻ Refresh submissions</button>
+    </div>
+  </div>
   <section class="panel compact-panel">
     <p class="muted" style="margin:0">
       Grade with the <strong>Grading Breakdown</strong> table (<strong>Criteria</strong> and <strong>Points</strong>).
       Use <strong>Edit</strong> on any graded row to update the score or feedback anytime.
+      New student work appears live; if something is missing, click <strong>Refresh submissions</strong>.
     </p>
   </section>
   <section class="panel">
@@ -1287,12 +1326,12 @@ function adminGrading() {
             .map(
               (g) => `<button class="mini-row" data-action="go" data-route="grade" data-student="${g.student.id}" data-quiz="${g.quizId}">
           ${avatar(g.student, 36)}
-          <span class="mr-main"><strong>${esc(g.student.name)}</strong><small>${esc(g.quiz.title)} · submitted ${fmtDate(g.submission.submittedAt)}</small></span>
+          <span class="mr-main"><strong>${esc(g.student.name || g.student.email || 'Student')}</strong><small>${esc(g.quiz?.title || g.quizId)} · submitted ${fmtDate(g.submission.submittedAt)}</small></span>
           <span class="btn btn-primary btn-sm">Grade →</span>
         </button>`
             )
             .join('')}</div>`
-        : `<div class="empty"><div class="empty-ico">✓</div><h3>All caught up</h3><p class="muted">There are no submissions waiting to be graded.</p></div>`
+        : `<div class="empty"><div class="empty-ico">✓</div><h3>All caught up</h3><p class="muted">There are no submissions waiting to be graded. Ask the student to re-submit if they still see “Submitted” on their side, then hit Refresh.</p></div>`
     }
   </section>
   <section class="panel">
@@ -1305,10 +1344,10 @@ function adminGrading() {
         <tbody>
           ${graded
             .map((g) => {
-              const unit = g.quiz.type === 'manual' ? '/100' : '%';
+              const unit = (g.quiz?.type || 'manual') === 'manual' ? '/100' : '%';
               return `<tr>
-              <td><div class="cell-user">${avatar(g.student, 28)}<strong>${esc(g.student.name)}</strong></div></td>
-              <td>${esc(g.quiz.title)}</td>
+              <td><div class="cell-user">${avatar(g.student, 28)}<strong>${esc(g.student.name || g.student.email || 'Student')}</strong></div></td>
+              <td>${esc(g.quiz?.title || g.quizId)}</td>
               <td><strong>${g.submission.score}${unit}</strong></td>
               <td class="muted">${fmtDate(g.submission.gradedAt || g.submission.submittedAt)}</td>
               <td><button class="btn btn-outline btn-sm" data-action="go" data-route="grade" data-student="${g.student.id}" data-quiz="${g.quizId}">Edit</button></td>
@@ -1324,24 +1363,46 @@ function adminGrading() {
 
 function gradeView() {
   const { student: studentId, quiz: quizId } = route.params;
-  const student = store.getUserById(studentId);
-  const quiz = store.getQuizById(quizId);
+  const student = store.getUserById(studentId) || {
+    id: studentId,
+    name: 'Student (profile missing)',
+    email: '',
+  };
+  const catalogQuiz = store.getQuizById(quizId);
   const sub = store.getProgress(studentId).submissions?.[quizId];
-  if (!student || !quiz || !sub) return `<p>Submission not found.</p>`;
+  if (!sub) {
+    return `<p>Submission not found. <button class="btn btn-outline btn-sm" data-action="refresh-progress">↻ Refresh submissions</button></p>`;
+  }
+  // Prefer catalog quiz; fall back so legacy / unlinked quiz ids still open.
+  const quiz = catalogQuiz || {
+    id: quizId,
+    title: `Assignment (${quizId})`,
+    type: sub.type || 'manual',
+    maxScore: 100,
+    prompt: '',
+    questions: Object.keys(sub.answers || {}).map((id) => ({
+      id,
+      prompt: id,
+    })),
+  };
 
   const isEdit = sub.status === 'graded';
   const max = quiz.maxScore || 100;
   const unit = quiz.type === 'manual' ? `/${max}` : '%';
-  const written = isWritten(quiz);
-  const useRubric = quiz.type === 'manual';
+  const written = isWritten(quiz) || !!(sub.answers && typeof sub.answers === 'object' && !Array.isArray(sub.answers));
+  const useRubric = quiz.type === 'manual' || written;
   const savedQs = sub.questionScores || {};
   const rubricScores = store.isRubricScores(savedQs) ? savedQs : {};
 
   let submissionPanel = '';
   if (written) {
+    const qList =
+      quiz.questions?.length
+        ? quiz.questions
+        : Object.keys(sub.answers || {}).map((id) => ({ id, prompt: id }));
     submissionPanel = `<section class="panel"><div class="panel-head"><h2>Student answers</h2>
-        <span class="muted">${quiz.questions.length} free-response questions · score with Grading Breakdown below</span></div>
-        ${quiz.questions
+        <span class="muted">${qList.length} free-response questions · score with Grading Breakdown below</span></div>
+        ${qList
           .map((qq, i) => `<div class="review-q">
             <p class="rq-prompt">${i + 1}. ${esc(qq.prompt)}</p>
             <p class="answer-box">${esc((sub.answers && sub.answers[qq.id]) || '—')}</p>
@@ -2019,6 +2080,21 @@ app.addEventListener('click', async (e) => {
     case 'go':
       go(d.route, { id: d.id, student: d.student, quiz: d.quiz });
       break;
+    case 'refresh-progress': {
+      toast('Refreshing submissions…');
+      const res = await store.refreshProgress();
+      if (res.ok) {
+        toast(
+          res.pending
+            ? `Updated · ${res.pending} awaiting review`
+            : `Updated · ${res.count ?? 0} submission${res.count === 1 ? '' : 's'} loaded`
+        );
+      } else {
+        toast(res.error || 'Could not refresh submissions');
+      }
+      render();
+      break;
+    }
     case 'remove-allowed':
       store.removeAllowedStudent(d.email);
       toast('Removed from approved list');
@@ -2465,16 +2541,22 @@ app.addEventListener('submit', async (e) => {
       const sel = form.querySelector(`input[name="${q.id}"]:checked`);
       answers[q.id] = sel ? Number(sel.value) : -1;
     });
-    const res = store.submitAutoQuiz(user.id, quiz.id, answers, todayISO());
-    toast(`Scored ${res.score}% (${res.correct}/${res.total})`);
+    setBusy(form, 'Saving…');
+    const res = await store.submitAutoQuiz(user.id, quiz.id, answers, todayISO());
+    if (res.ok) {
+      toast(`Scored ${res.score}% (${res.correct}/${res.total}) · saved`);
+    } else {
+      toast(`Scored ${res.score}% but save failed: ${res.error || 'try again'}`);
+    }
     render();
     return;
   }
 
   if (form.id === 'manualForm') {
     const user = currentUser();
-    store.submitManual(user.id, form.dataset.quiz, form.answer.value.trim(), todayISO());
-    toast('Submitted for review ✓');
+    setBusy(form, 'Submitting…');
+    const res = await store.submitManual(user.id, form.dataset.quiz, form.answer.value.trim(), todayISO());
+    toast(res.ok ? 'Submitted for review ✓' : `Could not save submission: ${res.error || 'try again'}`);
     render();
     return;
   }
@@ -2486,8 +2568,9 @@ app.addEventListener('submit', async (e) => {
     quiz.questions.forEach((q) => {
       answers[q.id] = (form.elements[q.id]?.value || '').trim();
     });
-    store.submitWritten(user.id, quiz.id, answers, todayISO());
-    toast('Submitted for review ✓');
+    setBusy(form, 'Submitting…');
+    const res = await store.submitWritten(user.id, quiz.id, answers, todayISO());
+    toast(res.ok ? 'Submitted for review ✓' : `Could not save submission: ${res.error || 'try again'}`);
     render();
     return;
   }
