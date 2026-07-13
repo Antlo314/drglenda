@@ -1138,7 +1138,7 @@ button { font-family: inherit; }
 .grade-q-block .q-score-field { margin-top: 10px; max-width: 220px; }
 .grade-q-block .q-score-input { width: 100%; }
 
-/* Grading Breakdown — aligned criteria / points table for lender-ready scoring */
+/* Grading Breakdown — aligned criteria / points table */
 .grading-breakdown {
   background: linear-gradient(180deg, #fffdf9 0%, #fff 100%);
   border: 1.5px solid rgba(201, 162, 74, 0.35);
@@ -1227,24 +1227,6 @@ button { font-family: inherit; }
   min-width: 2rem;
 }
 .gb-hint { margin: 4px 0 0; font-size: 0.84rem; }
-.lender-note {
-  background: linear-gradient(180deg, #f7f0e6 0%, #f3ebe0 100%);
-  border: 1px solid rgba(201, 162, 74, 0.28);
-  border-left: 3px solid #9c5b1e;
-  border-radius: var(--radius-sm);
-  padding: 13px 15px;
-  margin-bottom: 16px;
-  font-size: 0.9rem;
-  color: var(--ink);
-}
-.lender-note strong {
-  color: var(--maroon);
-  display: block;
-  margin-bottom: 4px;
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
 .derive-box {
   background: var(--cream);
   border-left: 3px solid var(--gold);
@@ -1261,14 +1243,7 @@ button { font-family: inherit; }
   font-size: 0.82rem;
 }
 .derive-box p { margin: 0; color: var(--ink); font-size: 0.9rem; }
-.lender-panel {
-  border: 1.5px solid rgba(201, 162, 74, 0.35);
-  background: linear-gradient(180deg, #fffdf9 0%, #fff 100%);
-  box-shadow: var(--shadow-sm);
-}
-.lender-panel.compact-panel { padding-top: 14px; padding-bottom: 14px; }
-.lender-lead { margin: 0 0 14px; max-width: 62ch; line-height: 1.55; }
-.lender-actions { justify-content: flex-start; margin-bottom: 4px; }
+.compact-panel { padding-top: 14px; padding-bottom: 14px; }
 .field-hint {
   font-weight: 500;
   color: var(--muted);

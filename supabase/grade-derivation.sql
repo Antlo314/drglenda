@@ -1,10 +1,8 @@
 -- ============================================================================
---  Grade derivation fields for lender-ready documentation
+--  Grade documentation fields (Grading Breakdown / scoring metadata)
 --  Run in Supabase SQL Editor after the base schema.
 --  Safe to re-run (IF NOT EXISTS / nullable columns).
 -- ============================================================================
--- Stores how the instructor (or auto-scorer) arrived at each final score so
--- UMOF can produce transparent packets for lenders / underwriting.
 
 alter table public.submissions
   add column if not exists grade_derivation text,
@@ -13,7 +11,7 @@ alter table public.submissions
   add column if not exists graded_by text;
 
 comment on column public.submissions.grade_derivation is
-  'Instructor or system explanation of how the final score was determined (lender-facing).';
+  'Instructor or system explanation of how the final score was determined.';
 comment on column public.submissions.question_scores is
   'Optional map of criterion_id (or question_id) → points. Rubric keys: completed, understanding, reflection, organization, grammar (each /20).';
 comment on column public.submissions.scoring_method is

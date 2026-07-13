@@ -8,7 +8,7 @@ import {
   login, logout, currentUser, initAuth,
   signUp, requestPasswordReset, updatePassword, updateDisplayName, onAuthEvent,
 } from './auth.js';
-import { downloadCSV, exportPDF, exportWord, exportLenderPacket } from './export.js';
+import { downloadCSV, exportPDF, exportWord } from './export.js';
 import { USE_SUPABASE, SESSIONS_LOCKED } from './config.js';
 
 const app = document.getElementById('app');
@@ -1126,7 +1126,7 @@ function adminHome() {
   );
 
   return `
-  <div class="page-head"><div><h1>Instructor Dashboard</h1><p class="muted">Summer 2026 cohort · Funding Masterclass · full admin control · training records on each student</p></div></div>
+  <div class="page-head"><div><h1>Instructor Dashboard</h1><p class="muted">Summer 2026 cohort · Funding Masterclass · full admin control</p></div></div>
 
   <div class="stat-grid">
     ${statCard('Enrolled students', students.length)}
@@ -1174,7 +1174,7 @@ function adminHome() {
 function adminStudents() {
   const students = store.getStudents();
   return `
-  <div class="page-head"><div><h1>Students</h1><p class="muted">${students.length} enrolled · open a student for detail, grading, and training records</p></div>
+  <div class="page-head"><div><h1>Students</h1><p class="muted">${students.length} enrolled · open a student for detail and grading</p></div>
     <div class="head-actions">
       <button class="btn btn-outline btn-sm" data-action="export-students-csv">⬇ CSV</button>
       <button class="btn btn-outline btn-sm" data-action="export-students-word">⬇ Word</button>
@@ -1211,11 +1211,6 @@ function adminStudentDetail() {
   const sessions = store.getSessions();
   const quizzes = store.getQuizzes();
 
-  const gradedSubs = quizzes
-    .map((q) => ({ q, sub: prog.submissions?.[q.id] }))
-    .filter(({ sub }) => sub?.status === 'graded' && typeof sub.score === 'number');
-  const hasGrades = gradedSubs.length > 0;
-
   return `
   <button class="back-link" data-action="go" data-route="admin-students">← All students</button>
   <div class="page-head">
@@ -1229,25 +1224,6 @@ function adminStudentDetail() {
     ${statCard('Avg score', st.avgScore == null ? '—' : `${st.avgScore}%`)}
     ${statCard('Tests taken', st.quizzesTaken)}
   </div>
-
-  <section class="panel lender-panel">
-    <div class="panel-head">
-      <h2>Training record for lender</h2>
-      <span class="pill ${hasGrades ? 'pill-done' : 'pill-todo'}">
-        ${hasGrades ? 'Ready to share' : 'No graded work yet'}
-      </span>
-    </div>
-    <p class="muted lender-lead">
-      Download a simple handout she can show a lender: student info, program overview,
-      participation, assessment scores, and the <strong>Grading Breakdown</strong>
-      (how each written score was derived).
-    </p>
-    <div class="head-actions lender-actions">
-      <button class="btn btn-primary btn-sm" data-action="export-lender-pdf" data-id="${s.id}">⬇ Training record (PDF)</button>
-      <button class="btn btn-outline btn-sm" data-action="export-lender-word" data-id="${s.id}">⬇ Word</button>
-      <button class="btn btn-outline btn-sm" data-action="export-lender-csv" data-id="${s.id}">⬇ Scores CSV</button>
-    </div>
-  </section>
 
   <div class="two-col">
     <section class="panel">
@@ -1297,10 +1273,10 @@ function adminGrading() {
   const graded = store.getGradedSubmissions();
   return `
   <div class="page-head"><div><h1>Grading</h1><p class="muted">${queue.length} submission${queue.length === 1 ? '' : 's'} awaiting your review · ${graded.length} graded (use <strong>Edit</strong> to update)</p></div></div>
-  <section class="panel lender-panel compact-panel">
+  <section class="panel compact-panel">
     <p class="muted" style="margin:0">
       Grade with the <strong>Grading Breakdown</strong> table (<strong>Criteria</strong> and <strong>Points</strong>).
-      Use <strong>Edit</strong> on any graded row to re-score. Training records on each student include the breakdown for lenders.
+      Use <strong>Edit</strong> on any graded row to update the score or feedback anytime.
     </p>
   </section>
   <section class="panel">
@@ -1406,7 +1382,7 @@ function gradeView() {
   <section class="panel"><div class="panel-head"><h2>Student submission</h2></div><p class="answer-box">${esc(sub.answer || '—')}</p></section>`;
   }
 
-  // Aligned Grading Breakdown table (5 criteria × 20 pts) for lender-ready derivation.
+  // Aligned Grading Breakdown table (5 criteria × 20 pts).
   const breakdownRows = store.GRADING_BREAKDOWN.map((c) => {
     const pts = rubricScores[c.id];
     return `<tr>
@@ -1426,7 +1402,7 @@ function gradeView() {
     ? `<div class="grading-breakdown" id="gradingBreakdown">
         <div class="gb-head">
           <h3>Grading Breakdown</h3>
-          <p class="muted gb-lead">Enter <strong>Criteria</strong> points below (shown on the lender training record).</p>
+          <p class="muted gb-lead">Enter <strong>Criteria</strong> points below. Totals fill the final score.</p>
         </div>
         <table class="gb-table" role="table" aria-label="Grading Breakdown Criteria and Points">
           <thead>
@@ -1476,7 +1452,7 @@ function gradeView() {
       }
     </div>
 
-    <label class="field"><span>Internal grading note <small class="field-hint">(optional · not shown on the lender handout)</small></span>
+    <label class="field"><span>Internal grading note <small class="field-hint">(optional · instructors only)</small></span>
       <textarea name="gradeNote" rows="2"
         placeholder="Optional notes for instructors only…">${esc(extractInstructorNote(sub.gradeDerivation))}</textarea>
     </label>
@@ -2250,49 +2226,6 @@ app.addEventListener('click', async (e) => {
       toast('Word document downloaded');
       break;
     }
-    case 'export-lender-pdf': {
-      const packet = store.getStudentLenderPacket(d.id);
-      if (!packet) {
-        toast('Student not found');
-        break;
-      }
-      exportLenderPacket(packet, { mode: 'print' });
-      toast('Opening training record — use Save as PDF');
-      break;
-    }
-    case 'export-lender-word': {
-      const packet = store.getStudentLenderPacket(d.id);
-      if (!packet) {
-        toast('Student not found');
-        break;
-      }
-      const slug = (packet.student.name || 'student').replace(/\s+/g, '-').toLowerCase();
-      exportLenderPacket(packet, { mode: 'word', filename: `umof-lender-packet-${slug}-${todayISO()}.doc` });
-      toast('Training record (Word) downloaded');
-      break;
-    }
-    case 'export-lender-csv': {
-      const packet = store.getStudentLenderPacket(d.id);
-      if (!packet) {
-        toast('Student not found');
-        break;
-      }
-      const cols = ['Student', 'Email', 'Assessment', 'Status', 'Score'];
-      const rows = packet.assessments.map((a) => {
-        const sub = a.submission;
-        return [
-          packet.student.name,
-          packet.student.email,
-          a.quiz.title,
-          sub ? sub.status : 'not_started',
-          sub?.status === 'graded' ? `${sub.score}${a.unit}` : '',
-        ];
-      });
-      const slug = (packet.student.name || 'student').replace(/\s+/g, '-').toLowerCase();
-      downloadCSV(cols, rows, `umof-scores-${slug}-${todayISO()}.csv`);
-      toast('Scores CSV downloaded');
-      break;
-    }
     case 'apply-q-sum': {
       const form = document.getElementById('gradeForm');
       if (!form) break;
@@ -2620,11 +2553,8 @@ app.addEventListener('submit', async (e) => {
         if (scoreInput) scoreInput.value = score;
       }
       scoringMethod = 'rubric';
-      // Lender-facing derivation is always the aligned breakdown table text.
       gradeDerivation = store.formatGradingBreakdown(questionScores, score, max);
-      // Keep optional internal note only if it is not the auto breakdown text.
       if (internalNote && !internalNote.startsWith('Grading Breakdown')) {
-        // Stored only in gradeDerivation would overwrite — append as instructor note.
         gradeDerivation = `${gradeDerivation}\n\nInstructor note: ${internalNote}`;
       }
     } else if (quiz?.type === 'auto') {

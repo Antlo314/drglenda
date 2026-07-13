@@ -121,9 +121,9 @@ create table if not exists public.submissions (
   answer       text,
   answers      jsonb,
   feedback     text,
-  -- Lender-ready documentation of how the final score was determined:
-  grade_derivation text,          -- written rationale / formula (included in lender packets)
-  question_scores  jsonb,         -- optional { questionId: points } for written tests
+  -- Optional grade documentation (Grading Breakdown / scoring metadata):
+  grade_derivation text,          -- written rationale / formula
+  question_scores  jsonb,         -- optional { criterionId|questionId: points }
   scoring_method   text,          -- 'auto' | 'rubric' | 'per_question' | 'instructor'
   graded_by        text,          -- instructor display name at last grade save
   submitted_at timestamptz default now(),
