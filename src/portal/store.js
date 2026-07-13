@@ -161,7 +161,12 @@ const mapPost = (r) => ({
 const mapSubmission = (r) => ({
   type: r.type, status: r.status, score: r.score, total: r.total,
   correct: r.correct, answer: r.answer, answers: r.answers,
-  feedback: r.feedback, submittedAt: d10(r.submitted_at), gradedAt: d10(r.graded_at),
+  feedback: r.feedback,
+  gradeDerivation: r.grade_derivation || '',
+  questionScores: r.question_scores || null,
+  scoringMethod: r.scoring_method || null,
+  gradedBy: r.graded_by || '',
+  submittedAt: d10(r.submitted_at), gradedAt: d10(r.graded_at),
 });
 const mapCurriculum = (r) => ({
   title: r.title || '',
@@ -414,13 +419,19 @@ export function submitAutoQuiz(studentId, quizId, answers, todayISO) {
   const score = Math.round((correct / total) * 100);
   const next = structuredClone(state);
   next.progress[studentId] ??= { completed: [], submissions: {} };
+  const gradeDerivation = `Auto-scored: ${correct} of ${total} questions correct → ${score}%. Formula: (correct ÷ total) × 100, rounded.`;
   next.progress[studentId].submissions[quizId] = {
     type: 'auto', score, total, correct, status: 'graded', submittedAt: todayISO, answers,
+    scoringMethod: 'auto', gradeDerivation, gradedAt: todayISO,
   };
   set(next);
   push(() =>
     supabase.from('submissions').upsert(
-      { profile_id: studentId, quiz_id: quizId, type: 'auto', status: 'graded', score, total, correct, answers, submitted_at: todayISO },
+      {
+        profile_id: studentId, quiz_id: quizId, type: 'auto', status: 'graded',
+        score, total, correct, answers, submitted_at: todayISO, graded_at: todayISO,
+        scoring_method: 'auto', grade_derivation: gradeDerivation,
+      },
       { onConflict: 'profile_id,quiz_id' }
     )
   );
@@ -469,22 +480,205 @@ export function setQuizPublished(quizId, published) {
   push(() => supabase.from('quizzes').update({ published }).eq('id', quizId));
 }
 
-/** Assign or update a grade (works for first-time grading and re-edits). */
-export function gradeSubmission(studentId, quizId, score, feedback, todayISO) {
+/**
+ * Assign or update a grade (first-time grading and re-edits).
+ * Stores lender-ready score derivation: how the instructor arrived at the score.
+ *
+ * @param {string} studentId
+ * @param {string} quizId
+ * @param {object|number} payload  score number (legacy) OR {
+ *   score, feedback, gradeDerivation, questionScores, scoringMethod, gradedBy
+ * }
+ * @param {string} [feedbackOrToday]  legacy 4-arg form: feedback string
+ * @param {string} [todayISO]         legacy 5-arg form: date
+ */
+export function gradeSubmission(studentId, quizId, payload, feedbackOrToday, todayISO) {
+  // Support both legacy gradeSubmission(id, q, score, feedback, date)
+  // and modern gradeSubmission(id, q, { score, feedback, … }, date).
+  let score;
+  let feedback = '';
+  let gradeDerivation = '';
+  let questionScores = null;
+  let scoringMethod = null;
+  let gradedBy = '';
+  let date = todayISO;
+
+  if (payload != null && typeof payload === 'object' && !Array.isArray(payload)) {
+    score = payload.score;
+    feedback = payload.feedback || '';
+    gradeDerivation = payload.gradeDerivation || '';
+    questionScores = payload.questionScores || null;
+    scoringMethod = payload.scoringMethod || null;
+    gradedBy = payload.gradedBy || '';
+    date = feedbackOrToday || todayISO;
+  } else {
+    score = payload;
+    feedback = feedbackOrToday || '';
+    date = todayISO;
+  }
+
+  const quiz = getQuizById(quizId);
+  if (!scoringMethod) {
+    scoringMethod =
+      quiz?.type === 'auto' && !gradeDerivation
+        ? 'auto'
+        : isRubricScores(questionScores)
+          ? 'rubric'
+          : questionScores
+            ? 'per_question'
+            : 'instructor';
+  }
+  // Rubric grades always get a clean, aligned derivation string for lenders.
+  if (scoringMethod === 'rubric' && isRubricScores(questionScores) && !gradeDerivation) {
+    gradeDerivation = formatGradingBreakdown(questionScores, score, quiz?.maxScore || 100);
+  }
+  // Auto quizzes without an instructor override get a transparent formula.
+  if (scoringMethod === 'auto' && quiz?.type === 'auto' && !gradeDerivation) {
+    const sub0 = state.progress[studentId]?.submissions?.[quizId];
+    if (sub0?.correct != null && sub0?.total) {
+      gradeDerivation = `Auto-scored: ${sub0.correct} of ${sub0.total} questions correct → ${score}%. Formula: (correct ÷ total) × 100, rounded.`;
+    } else {
+      gradeDerivation = `Auto-scored multiple-choice: final score ${score}%.`;
+    }
+  }
+
   const next = structuredClone(state);
   const sub = next.progress[studentId]?.submissions?.[quizId];
   if (!sub) return;
   sub.status = 'graded';
   sub.score = score;
   sub.feedback = feedback;
-  sub.gradedAt = todayISO;
+  sub.gradeDerivation = gradeDerivation;
+  sub.questionScores = questionScores;
+  sub.scoringMethod = scoringMethod;
+  sub.gradedBy = gradedBy;
+  sub.gradedAt = date;
   set(next);
   push(() =>
     supabase
       .from('submissions')
-      .update({ status: 'graded', score, feedback, graded_at: todayISO })
+      .update({
+        status: 'graded',
+        score,
+        feedback,
+        grade_derivation: gradeDerivation,
+        question_scores: questionScores,
+        scoring_method: scoringMethod,
+        graded_by: gradedBy,
+        graded_at: date,
+      })
       .match({ profile_id: studentId, quiz_id: quizId })
   );
+}
+
+/**
+ * Fixed lender-facing rubric for instructor-graded work (5 × 20 = 100).
+ * Stored in submissions.question_scores keyed by criterion id.
+ */
+export const GRADING_BREAKDOWN = [
+  { id: 'completed', label: 'Completed all questions', max: 20 },
+  { id: 'understanding', label: 'Understanding of concepts', max: 20 },
+  { id: 'reflection', label: 'Depth of reflection', max: 20 },
+  { id: 'organization', label: 'Organization and clarity', max: 20 },
+  { id: 'grammar', label: 'Grammar, punctuation, and sentence structure', max: 20 },
+];
+
+/** True when scores use the fixed Grading Breakdown rubric keys. */
+export function isRubricScores(scores) {
+  if (!scores || typeof scores !== 'object' || Array.isArray(scores)) return false;
+  return GRADING_BREAKDOWN.some((c) => Object.prototype.hasOwnProperty.call(scores, c.id));
+}
+
+/**
+ * Lender-ready multi-line text for a rubric grade.
+ * Example lines: "Completed all questions    20/20"
+ */
+export function formatGradingBreakdown(scores, totalScore, maxScore = 100) {
+  const lines = ['Grading Breakdown', '', 'Criteria    Points'];
+  for (const c of GRADING_BREAKDOWN) {
+    const pts = scores && scores[c.id] != null && scores[c.id] !== '' ? scores[c.id] : '—';
+    lines.push(`${c.label}    ${pts}/${c.max}`);
+  }
+  if (totalScore != null) {
+    lines.push('');
+    lines.push(`Total    ${totalScore}/${maxScore}`);
+  }
+  return lines.join('\n');
+}
+
+/** Human-readable explanation of how a submission’s score was derived (lender-ready). */
+export function describeGradeDerivation(quiz, sub) {
+  if (!sub || sub.status !== 'graded') return '';
+  if (sub.gradeDerivation) return sub.gradeDerivation;
+
+  if (sub.scoringMethod === 'auto' || (quiz?.type === 'auto' && sub.correct != null && sub.total)) {
+    return `Auto-scored: ${sub.correct} of ${sub.total} questions correct → ${sub.score}%. Formula: (correct ÷ total) × 100, rounded.`;
+  }
+
+  if (isRubricScores(sub.questionScores) || sub.scoringMethod === 'rubric') {
+    return formatGradingBreakdown(sub.questionScores, sub.score, quiz?.maxScore || 100);
+  }
+
+  if (sub.questionScores && quiz?.questions?.length) {
+    const max = quiz.maxScore || 100;
+    const per = Math.round((max / quiz.questions.length) * 10) / 10;
+    const lines = quiz.questions.map((qq, i) => {
+      const pts = sub.questionScores[qq.id];
+      const earned = pts == null ? '—' : pts;
+      return `Q${i + 1}: ${earned}/${per} pts`;
+    });
+    return `Per-question scoring (equal weight, max ${max}). ${lines.join('; ')}. Total: ${sub.score}/${max}.`;
+  }
+
+  return sub.score != null
+    ? `Instructor-assigned score: ${sub.score}${quiz?.type === 'manual' ? `/${quiz.maxScore || 100}` : '%'}. (No written derivation on file — re-save the grade to document how this score was determined.)`
+    : '';
+}
+
+/**
+ * Full student record for a simple training / lender handout.
+ * Scores + Grading Breakdown (when rubric was used) + program grading explanation.
+ */
+export function getStudentLenderPacket(studentId) {
+  const student = getUserById(studentId);
+  if (!student) return null;
+  const curriculum = getCurriculum();
+  const sessions = getSessions();
+  const quizzes = getQuizzes();
+  const prog = getProgress(studentId);
+  const stats = getStudentStats(studentId);
+
+  const assessments = quizzes.map((quiz) => {
+    const sub = prog.submissions?.[quiz.id] || null;
+    return {
+      quiz,
+      submission: sub,
+      unit: quiz.type === 'manual' ? `/${quiz.maxScore || 100}` : '%',
+    };
+  });
+
+  const gradingExplanation = [
+    'How UMOF grades this program',
+    '',
+    'Unlimited Mind of Freedom (UMOF) evaluates students on participation in live class sessions and completion of course assessments (quizzes and written assignments).',
+    '',
+    '• Multiple-choice quizzes are scored automatically: percentage of correct answers.',
+    '• Written assignments and open responses are reviewed by an instructor using a Grading Breakdown (five criteria, 20 points each, total 100): Completed all questions; Understanding of concepts; Depth of reflection; Organization and clarity; Grammar, punctuation, and sentence structure.',
+    '• The program average is the mean of all graded assessment scores.',
+    '',
+    'Final grades reflect satisfactory completion of training objectives for The Entrepreneur’s Journey: Funding Masterclass. This document is a training record only — not a credit decision, income verification, or guarantee of funding.',
+  ].join('\n');
+
+  return {
+    student,
+    curriculum,
+    sessions,
+    completedSessionIds: prog.completed || [],
+    assessments,
+    stats,
+    gradingExplanation,
+    generatedAt: new Date().toISOString(),
+  };
 }
 
 export function updateLeadStatus(leadId, status) {

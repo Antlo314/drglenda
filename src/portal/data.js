@@ -69,6 +69,15 @@ export const SEED = {
       title: 'Founder & Lead Instructor',
       phone: '(770) 555-0100',
     },
+    {
+      id: 'u-admin-glenda',
+      role: 'admin',
+      name: 'Dr. Glenda S. Williams, CFWF',
+      email: 'iamwhoiambook@gmail.com',
+      password: '1234',
+      title: 'Founder & Lead Instructor',
+      phone: '(770) 555-0100',
+    },
     { id: 'u-jordan', role: 'student', name: 'Jordan Ellis', email: 'jordan@umof.org', password: 'demo1234', phone: '(404) 555-0142', cohort: 'Summer 2026', enrolled: '2026-06-10', plan: 'Full Program' },
     { id: 'u-maya', role: 'student', name: 'Maya Thompson', email: 'maya@umof.org', password: 'demo1234', phone: '(678) 555-0188', cohort: 'Summer 2026', enrolled: '2026-06-09', plan: 'Full Program' },
     { id: 'u-andre', role: 'student', name: 'Andre Robinson', email: 'andre@umof.org', password: 'demo1234', phone: '(470) 555-0119', cohort: 'Summer 2026', enrolled: '2026-06-12', plan: 'Full Program' },
@@ -183,7 +192,18 @@ export const SEED = {
     'u-maya': {
       completed: ['s1', 's2', 's3', 's4', 's5'],
       submissions: {
-        qw1: { type: 'manual', status: 'graded', score: 92, feedback: 'Strong, well-articulated answers. Expand a little on readiness in Q5.', submittedAt: '2026-07-06', gradedAt: '2026-07-08', answers: {
+        qw1: {
+          type: 'manual', status: 'graded', score: 91,
+          feedback: 'Strong, well-articulated answers. Expand a little on readiness in Q5.',
+          gradeDerivation:
+            'Grading Breakdown\n\nCriteria    Points\nCompleted all questions    20/20\nUnderstanding of concepts    18/20\nDepth of reflection    17/20\nOrganization and clarity    16/20\nGrammar, punctuation, and sentence structure    20/20\n\nTotal    91/100',
+          questionScores: {
+            completed: 20, understanding: 18, reflection: 17, organization: 16, grammar: 20,
+          },
+          scoringMethod: 'rubric',
+          gradedBy: 'Dr. Glenda S. Williams, CFWF',
+          submittedAt: '2026-07-06', gradedAt: '2026-07-08',
+          answers: {
           'qw1-1': 'A mindset that treats ability as something you develop, not a fixed trait.',
           'qw1-2': 'Goals turn a vision into concrete milestones and keep the team accountable.',
           'qw1-3': 'It aligns everyone around where the business is headed and why.',
@@ -215,7 +235,18 @@ export const SEED = {
     'u-tasha': {
       completed: ['s1', 's2', 's3', 's4', 's5', 's6'],
       submissions: {
-        qw1: { type: 'manual', status: 'graded', score: 88, feedback: 'Great work. Give a second characteristic more detail in Q4.', submittedAt: '2026-07-06', gradedAt: '2026-07-09', answers: {
+        qw1: {
+          type: 'manual', status: 'graded', score: 88,
+          feedback: 'Great work. Give a second characteristic more detail in Q4.',
+          gradeDerivation:
+            'Grading Breakdown\n\nCriteria    Points\nCompleted all questions    20/20\nUnderstanding of concepts    18/20\nDepth of reflection    17/20\nOrganization and clarity    16/20\nGrammar, punctuation, and sentence structure    17/20\n\nTotal    88/100',
+          questionScores: {
+            completed: 20, understanding: 18, reflection: 17, organization: 16, grammar: 17,
+          },
+          scoringMethod: 'rubric',
+          gradedBy: 'Dr. Glenda S. Williams, CFWF',
+          submittedAt: '2026-07-06', gradedAt: '2026-07-09',
+          answers: {
           'qw1-1': 'Seeing challenges as chances to learn and improve.',
           'qw1-2': 'It provides direction and a way to track whether the business is on course.',
           'qw1-3': 'To capture the long-term vision that guides decisions.',

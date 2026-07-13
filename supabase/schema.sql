@@ -121,10 +121,20 @@ create table if not exists public.submissions (
   answer       text,
   answers      jsonb,
   feedback     text,
+  -- Lender-ready documentation of how the final score was determined:
+  grade_derivation text,          -- written rationale / formula (included in lender packets)
+  question_scores  jsonb,         -- optional { questionId: points } for written tests
+  scoring_method   text,          -- 'auto' | 'rubric' | 'per_question' | 'instructor'
+  graded_by        text,          -- instructor display name at last grade save
   submitted_at timestamptz default now(),
   graded_at    timestamptz,
   unique (profile_id, quiz_id)
 );
+-- for databases created before grade-derivation columns existed:
+alter table public.submissions add column if not exists grade_derivation text;
+alter table public.submissions add column if not exists question_scores jsonb;
+alter table public.submissions add column if not exists scoring_method text;
+alter table public.submissions add column if not exists graded_by text;
 alter table public.submissions enable row level security;
 drop policy if exists "submissions read" on public.submissions;
 drop policy if exists "submissions student write" on public.submissions;

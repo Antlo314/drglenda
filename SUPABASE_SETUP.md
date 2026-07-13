@@ -62,6 +62,18 @@ own content; you see the full dashboard, grading queue, and live CRM.
 
 ---
 
+## Grade derivation (lender packets)
+
+If your project was created **before** grade-derivation columns existed, run
+[`supabase/grade-derivation.sql`](supabase/grade-derivation.sql) once in the SQL Editor.
+New installs that run the full [`schema.sql`](supabase/schema.sql) already include these columns.
+
+They store how each score was determined (`grade_derivation`, optional `question_scores`,
+`scoring_method`, `graded_by`) so the admin **Lender packet** export on each student
+is transparent for underwriting. Admin control is unchanged — this only documents grades.
+
+---
+
 ## Add-ons (built — enable with one more SQL file)
 
 These three features are already in the code. To turn them on, run

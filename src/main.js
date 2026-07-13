@@ -8,6 +8,7 @@ import { USE_SUPABASE } from './portal/config.js';
    ------------------------------------------------------------------------- */
 const header = document.getElementById('header');
 const onScroll = () => {
+  if (!header) return;
   header.classList.toggle('scrolled', window.scrollY > 12);
 };
 window.addEventListener('scroll', onScroll, { passive: true });

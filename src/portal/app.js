@@ -8,13 +8,29 @@ import {
   login, logout, currentUser, initAuth,
   signUp, requestPasswordReset, updatePassword, updateDisplayName, onAuthEvent,
 } from './auth.js';
-import { downloadCSV, exportPDF, exportWord } from './export.js';
+import { downloadCSV, exportPDF, exportWord, exportLenderPacket } from './export.js';
 import { USE_SUPABASE, SESSIONS_LOCKED } from './config.js';
 
 const app = document.getElementById('app');
 
 /** Which curriculum week accordion stays open after a re-render (admin edits). */
 let curricOpenWeek = null;
+/** Admin curriculum page: view mode vs edit mode (Edit / Save / Delete). */
+let curricEditing = false;
+
+/** Ensure Dr. Glenda S. Williams is always shown with , CFWF. */
+function displayNameWithCfwf(name) {
+  if (!name) return name;
+  const n = String(name).trim();
+  if (/CFWF/i.test(n)) {
+    // Normalize to ", CFWF" if credential is present without a clean comma form
+    return n.replace(/\s*,?\s*CFWF\s*$/i, ', CFWF');
+  }
+  if (/Dr\.?\s*Glenda\s+S\.?\s*Williams/i.test(n)) {
+    return `${n.replace(/,+\s*$/, '')}, CFWF`;
+  }
+  return n;
+}
 
 /* ---- small helpers -------------------------------------------------------- */
 const esc = (v) =>
@@ -244,7 +260,7 @@ function accountView(user) {
       <div class="panel-head"><h2>Profile</h2></div>
       <form id="nameForm" class="acct-form">
         <label class="field"><span>Display name</span>
-          <input type="text" name="name" value="${esc(user.name)}" required />
+          <input type="text" name="name" value="${esc(displayNameWithCfwf(user.name))}" required />
         </label>
         <label class="field"><span>Email</span>
           <input type="email" value="${esc(user.email)}" disabled />
@@ -303,7 +319,7 @@ function shell(user, navItems, content) {
         <button class="side-toggle" data-action="toggle-side" aria-label="Menu">☰</button>
         <div class="top-spacer"></div>
         <div class="top-user">
-          <div class="tu-text"><strong>${esc(user.name)}</strong><small>${user.role === 'admin' ? esc(user.title || 'Instructor') : esc(user.cohort || 'Student')}</small></div>
+          <div class="tu-text"><strong>${esc(displayNameWithCfwf(user.name))}</strong><small>${user.role === 'admin' ? esc(user.title || 'Instructor') : esc(user.cohort || 'Student')}</small></div>
           ${avatar(user, 40)}
           <button class="btn btn-ghost btn-sm" data-action="logout">Log out</button>
         </div>
@@ -415,10 +431,12 @@ function weekEditor(w, open) {
           data-action="curric-week-quiz" data-week="${wk}">${esc(linesText(w.quiz))}</textarea>
       </label>
       <div class="curric-edit-actions">
-        <button type="button" class="btn btn-outline btn-sm" data-action="delete-curric-week" data-week="${wk}">
-          Delete week
+        <button type="button" class="btn btn-primary btn-sm" data-action="save-curric-week" data-week="${wk}">
+          Save
         </button>
-        <span class="muted">Changes save when you leave a field</span>
+        <button type="button" class="btn btn-outline btn-sm btn-danger-outline" data-action="delete-curric-week" data-week="${wk}">
+          Delete
+        </button>
       </div>
     </div>
   </details>`;
@@ -433,14 +451,7 @@ function curriculumView(user) {
       ? curricOpenWeek
       : weeks[0]?.week ?? null;
 
-  if (!isAdmin) {
-    return `
-  <div class="page-head"><div>
-    <span class="eyebrow">Course Syllabus</span>
-    <h1>${esc(c.title)}</h1>
-    <p class="muted">${esc(c.tagline)}</p>
-  </div></div>
-
+  const studentSyllabus = `
   <section class="panel curric-overview">
     <div class="curric-meta">
       <div><span class="cm-label">Course Length</span><strong>${esc(c.length)}</strong></div>
@@ -457,16 +468,43 @@ function curriculumView(user) {
     ${weeks.map((w) => weekBlock(w, Number(w.week) === Number(openWeek))).join('')}
   </div>
   <p class="curric-note muted">New weeks are released each week through the ${esc(String(parseInt(c.length, 10) || ''))}-week program.</p>`;
+
+  if (!isAdmin) {
+    return `
+  <div class="page-head"><div>
+    <span class="eyebrow">Course Syllabus</span>
+    <h1>${esc(c.title)}</h1>
+    <p class="muted">${esc(c.tagline)}</p>
+  </div></div>
+  ${studentSyllabus}`;
   }
 
-  /* ---- Admin editor ---- */
-  return `
-  <div class="page-head"><div>
-    <span class="eyebrow">Course Syllabus · Admin</span>
-    <h1>Edit Curriculum</h1>
-    <p class="muted">Fully customize the course outline students see. Changes save automatically.</p>
+  /* ---- Admin: view mode (with Edit) or edit mode (Save / Delete) ---- */
+  if (!curricEditing) {
+    return `
+  <div class="page-head">
+    <div>
+      <span class="eyebrow">Course Syllabus · Admin</span>
+      <h1>${esc(c.title)}</h1>
+      <p class="muted">${esc(c.tagline)} · Preview what students see</p>
+    </div>
+    <button type="button" class="btn btn-primary" data-action="curric-edit">Edit</button>
   </div>
-  <button type="button" class="btn btn-primary" data-action="add-curric-week">+ Add week</button>
+  ${studentSyllabus}`;
+  }
+
+  return `
+  <div class="page-head">
+    <div>
+      <span class="eyebrow">Course Syllabus · Admin</span>
+      <h1>Edit Curriculum</h1>
+      <p class="muted">Update the course outline students see. Use <strong>Save</strong> when finished; use <strong>Delete</strong> on a week to remove it.</p>
+    </div>
+    <div class="curric-head-actions">
+      <button type="button" class="btn btn-outline" data-action="curric-cancel">Cancel</button>
+      <button type="button" class="btn btn-primary" data-action="curric-save">Save</button>
+      <button type="button" class="btn btn-outline" data-action="add-curric-week">+ Add week</button>
+    </div>
   </div>
 
   <section class="panel curric-overview curric-edit-overview">
@@ -486,10 +524,13 @@ function curriculumView(user) {
       <label class="field curric-edit-full"><span>Course description</span>
         <textarea rows="4" data-action="curric-meta-desc">${esc(c.description || '')}</textarea></label>
     </div>
+    <div class="curric-edit-actions curric-overview-actions">
+      <button type="button" class="btn btn-primary btn-sm" data-action="curric-save">Save</button>
+    </div>
   </section>
 
   <div class="panel-head curric-weeks-head"><h2>Weekly curriculum</h2>
-    <span class="muted">${weeks.length} week${weeks.length === 1 ? '' : 's'} · uncheck “Coming soon” to publish details</span></div>
+    <span class="muted">${weeks.length} week${weeks.length === 1 ? '' : 's'} · Save or Delete each week as needed</span></div>
   <div class="curric-weeks">
     ${
       weeks.length
@@ -715,6 +756,11 @@ function studentHome(user) {
     <div><h1>Welcome back, ${esc(user.name.split(' ')[0])}</h1>
     <p class="muted">The Entrepreneur’s Journey — Funding Masterclass · ${esc(user.cohort)}</p></div>
   </div>
+
+  <section class="panel student-contact-note" role="note">
+    <p>For curriculum or grading questions, or to submit business documents, please email
+      <a href="mailto:admin@umof.org">admin@umof.org</a>.</p>
+  </section>
 
   <div class="stat-grid">
     ${statCard('Course progress', `${s.completionPct}%`, bar(s.completionPct))}
@@ -1080,7 +1126,7 @@ function adminHome() {
   );
 
   return `
-  <div class="page-head"><div><h1>Instructor Dashboard</h1><p class="muted">Summer 2026 cohort · Funding Masterclass</p></div></div>
+  <div class="page-head"><div><h1>Instructor Dashboard</h1><p class="muted">Summer 2026 cohort · Funding Masterclass · full admin control · training records on each student</p></div></div>
 
   <div class="stat-grid">
     ${statCard('Enrolled students', students.length)}
@@ -1128,7 +1174,7 @@ function adminHome() {
 function adminStudents() {
   const students = store.getStudents();
   return `
-  <div class="page-head"><div><h1>Students</h1><p class="muted">${students.length} enrolled · click a student for detail</p></div>
+  <div class="page-head"><div><h1>Students</h1><p class="muted">${students.length} enrolled · open a student for detail, grading, and training records</p></div>
     <div class="head-actions">
       <button class="btn btn-outline btn-sm" data-action="export-students-csv">⬇ CSV</button>
       <button class="btn btn-outline btn-sm" data-action="export-students-word">⬇ Word</button>
@@ -1165,6 +1211,11 @@ function adminStudentDetail() {
   const sessions = store.getSessions();
   const quizzes = store.getQuizzes();
 
+  const gradedSubs = quizzes
+    .map((q) => ({ q, sub: prog.submissions?.[q.id] }))
+    .filter(({ sub }) => sub?.status === 'graded' && typeof sub.score === 'number');
+  const hasGrades = gradedSubs.length > 0;
+
   return `
   <button class="back-link" data-action="go" data-route="admin-students">← All students</button>
   <div class="page-head">
@@ -1178,6 +1229,25 @@ function adminStudentDetail() {
     ${statCard('Avg score', st.avgScore == null ? '—' : `${st.avgScore}%`)}
     ${statCard('Tests taken', st.quizzesTaken)}
   </div>
+
+  <section class="panel lender-panel">
+    <div class="panel-head">
+      <h2>Training record for lender</h2>
+      <span class="pill ${hasGrades ? 'pill-done' : 'pill-todo'}">
+        ${hasGrades ? 'Ready to share' : 'No graded work yet'}
+      </span>
+    </div>
+    <p class="muted lender-lead">
+      Download a simple handout she can show a lender: student info, program overview,
+      participation, assessment scores, and the <strong>Grading Breakdown</strong>
+      (how each written score was derived).
+    </p>
+    <div class="head-actions lender-actions">
+      <button class="btn btn-primary btn-sm" data-action="export-lender-pdf" data-id="${s.id}">⬇ Training record (PDF)</button>
+      <button class="btn btn-outline btn-sm" data-action="export-lender-word" data-id="${s.id}">⬇ Word</button>
+      <button class="btn btn-outline btn-sm" data-action="export-lender-csv" data-id="${s.id}">⬇ Scores CSV</button>
+    </div>
+  </section>
 
   <div class="two-col">
     <section class="panel">
@@ -1209,7 +1279,7 @@ function adminStudentDetail() {
               const score = sub.status === 'graded' ? `${sub.score}${q.type === 'manual' ? '/100' : '%'}` : '—';
               let action = '';
               if (sub.status === 'graded') {
-                action = `<button class="btn btn-outline btn-sm" data-action="go" data-route="grade" data-student="${s.id}" data-quiz="${q.id}">Edit grade</button>`;
+                action = `<button class="btn btn-outline btn-sm" data-action="go" data-route="grade" data-student="${s.id}" data-quiz="${q.id}">Edit</button>`;
               } else if (sub.type === 'manual' && sub.status === 'submitted') {
                 action = `<button class="btn btn-primary btn-sm" data-action="go" data-route="grade" data-student="${s.id}" data-quiz="${q.id}">Grade →</button>`;
               }
@@ -1226,7 +1296,13 @@ function adminGrading() {
   const queue = store.getGradingQueue();
   const graded = store.getGradedSubmissions();
   return `
-  <div class="page-head"><div><h1>Grading</h1><p class="muted">${queue.length} submission${queue.length === 1 ? '' : 's'} awaiting your review · ${graded.length} graded (editable)</p></div></div>
+  <div class="page-head"><div><h1>Grading</h1><p class="muted">${queue.length} submission${queue.length === 1 ? '' : 's'} awaiting your review · ${graded.length} graded (use <strong>Edit</strong> to update)</p></div></div>
+  <section class="panel lender-panel compact-panel">
+    <p class="muted" style="margin:0">
+      Grade with the <strong>Grading Breakdown</strong> table (<strong>Criteria</strong> and <strong>Points</strong>).
+      Use <strong>Edit</strong> on any graded row to re-score. Training records on each student include the breakdown for lenders.
+    </p>
+  </section>
   <section class="panel">
     <div class="panel-head"><h2>Awaiting review</h2></div>
     ${
@@ -1245,11 +1321,11 @@ function adminGrading() {
   </section>
   <section class="panel">
     <div class="panel-head"><h2>Graded scores</h2>
-      <span class="muted">Edit any score or feedback</span></div>
+      <span class="muted">Edit score, feedback, or Grading Breakdown anytime</span></div>
     ${
       graded.length
         ? `<table class="data-table compact">
-        <thead><tr><th>Student</th><th>Test</th><th>Score</th><th>Graded</th><th></th></tr></thead>
+        <thead><tr><th>Student</th><th>Test</th><th>Score</th><th>Graded</th><th>Edit</th></tr></thead>
         <tbody>
           ${graded
             .map((g) => {
@@ -1259,13 +1335,13 @@ function adminGrading() {
               <td>${esc(g.quiz.title)}</td>
               <td><strong>${g.submission.score}${unit}</strong></td>
               <td class="muted">${fmtDate(g.submission.gradedAt || g.submission.submittedAt)}</td>
-              <td><button class="btn btn-outline btn-sm" data-action="go" data-route="grade" data-student="${g.student.id}" data-quiz="${g.quizId}">Edit grade</button></td>
+              <td><button class="btn btn-outline btn-sm" data-action="go" data-route="grade" data-student="${g.student.id}" data-quiz="${g.quizId}">Edit</button></td>
             </tr>`;
             })
             .join('')}
         </tbody>
       </table>`
-        : `<p class="muted">No graded submissions yet. Scores appear here after you grade a test — you can edit them anytime.</p>`
+        : `<p class="muted">No graded submissions yet. Scores appear here after you grade a test — use Edit anytime to update them.</p>`
     }
   </section>`;
 }
@@ -1280,22 +1356,33 @@ function gradeView() {
   const isEdit = sub.status === 'graded';
   const max = quiz.maxScore || 100;
   const unit = quiz.type === 'manual' ? `/${max}` : '%';
+  const written = isWritten(quiz);
+  const useRubric = quiz.type === 'manual';
+  const savedQs = sub.questionScores || {};
+  const rubricScores = store.isRubricScores(savedQs) ? savedQs : {};
 
   let submissionPanel = '';
-  if (isWritten(quiz)) {
-    submissionPanel = `<section class="panel"><div class="panel-head"><h2>Student answers</h2></div>
+  if (written) {
+    submissionPanel = `<section class="panel"><div class="panel-head"><h2>Student answers</h2>
+        <span class="muted">${quiz.questions.length} free-response questions · score with Grading Breakdown below</span></div>
         ${quiz.questions
-          .map(
-            (qq, i) => `<div class="review-q">
+          .map((qq, i) => `<div class="review-q">
             <p class="rq-prompt">${i + 1}. ${esc(qq.prompt)}</p>
             <p class="answer-box">${esc((sub.answers && sub.answers[qq.id]) || '—')}</p>
-          </div>`
-          )
+          </div>`)
           .join('')}
       </section>`;
   } else if (quiz.type === 'auto' && quiz.questions?.length) {
     submissionPanel = `<section class="panel"><div class="panel-head"><h2>Quiz review</h2>
         <span class="muted">${sub.correct != null ? `${sub.correct} of ${sub.total} correct (auto)` : 'Auto-scored'}</span></div>
+        ${
+          sub.correct != null && sub.total
+            ? `<div class="derive-box auto">
+                <strong>Auto score</strong>
+                <p>${sub.correct} of ${sub.total} correct → ${sub.score ?? Math.round((sub.correct / sub.total) * 100)}%. You can override the final score below if needed.</p>
+              </div>`
+            : ''
+        }
         ${quiz.questions
           .map((qq, i) => {
             const chosen = sub.answers ? sub.answers[qq.id] : undefined;
@@ -1319,8 +1406,46 @@ function gradeView() {
   <section class="panel"><div class="panel-head"><h2>Student submission</h2></div><p class="answer-box">${esc(sub.answer || '—')}</p></section>`;
   }
 
+  // Aligned Grading Breakdown table (5 criteria × 20 pts) for lender-ready derivation.
+  const breakdownRows = store.GRADING_BREAKDOWN.map((c) => {
+    const pts = rubricScores[c.id];
+    return `<tr>
+      <td class="gb-criteria">${esc(c.label)}</td>
+      <td class="gb-points">
+        <span class="gb-score-wrap">
+          <input type="number" class="gb-score-input" name="gb_${c.id}" data-cid="${esc(c.id)}"
+            min="0" max="${c.max}" step="1" value="${pts != null ? pts : ''}"
+            aria-label="${esc(c.label)} points out of ${c.max}" />
+          <span class="gb-max">/${c.max}</span>
+        </span>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const breakdownPanel = useRubric
+    ? `<div class="grading-breakdown" id="gradingBreakdown">
+        <div class="gb-head">
+          <h3>Grading Breakdown</h3>
+          <p class="muted gb-lead">Enter <strong>Criteria</strong> points below (shown on the lender training record).</p>
+        </div>
+        <table class="gb-table" role="table" aria-label="Grading Breakdown Criteria and Points">
+          <thead>
+            <tr><th class="gb-criteria">Criteria</th><th class="gb-points">Points</th></tr>
+          </thead>
+          <tbody>${breakdownRows}</tbody>
+          <tfoot>
+            <tr>
+              <td class="gb-criteria"><strong>Total</strong></td>
+              <td class="gb-points"><strong id="qScoreSum">—</strong><span class="gb-max">/${max}</span></td>
+            </tr>
+          </tfoot>
+        </table>
+        <p class="hint gb-hint">Filling the breakdown auto-fills the final score. Total must equal the sum of the five criteria (max ${max}).</p>
+      </div>`
+    : '';
+
   const meta = isEdit
-    ? `graded ${fmtDate(sub.gradedAt)} · score ${sub.score}${unit}`
+    ? `graded ${fmtDate(sub.gradedAt)} · score ${sub.score}${unit}${sub.gradedBy ? ` · by ${esc(sub.gradedBy)}` : ''}`
     : `submitted ${fmtDate(sub.submittedAt)}`;
 
   return `
@@ -1333,18 +1458,36 @@ function gradeView() {
 
   ${submissionPanel}
 
-  <form id="gradeForm" data-student="${studentId}" data-quiz="${quizId}" class="panel">
-    <div class="panel-head"><h2>${isEdit ? 'Edit grade' : 'Assign grade'}</h2>
+  <form id="gradeForm" data-student="${studentId}" data-quiz="${quizId}" data-written="${written ? '1' : '0'}" data-rubric="${useRubric ? '1' : '0'}" class="panel">
+    <div class="panel-head"><h2>${isEdit ? 'Edit' : 'Assign grade'}</h2>
       ${isEdit ? `<span class="pill pill-done">Currently ${sub.score}${unit}</span>` : ''}</div>
+
+    ${breakdownPanel}
+
     <div class="grade-row">
-      <label class="field grade-score"><span>Score (0–${max}${quiz.type === 'auto' ? ', percent' : ''})</span>
-        <input type="number" name="score" min="0" max="${max}" step="1" value="${sub.score ?? ''}" required />
+      <label class="field grade-score"><span>Final score (0–${max}${quiz.type === 'auto' ? ', percent' : ''})</span>
+        <input type="number" name="score" id="gradeScoreInput" min="0" max="${max}" step="1" value="${sub.score ?? ''}" required />
       </label>
+      ${
+        useRubric
+          ? `<div class="grade-sum-hint muted">Sum of breakdown: <strong id="qScoreSumHint">—</strong>
+              <button type="button" class="link-arrow" data-action="apply-q-sum">Use as final score →</button></div>`
+          : ''
+      }
     </div>
-    <label class="field"><span>Feedback to student</span>
-      <textarea name="feedback" rows="5" placeholder="What was strong, what to improve…">${esc(sub.feedback || '')}</textarea>
+
+    <label class="field"><span>Internal grading note <small class="field-hint">(optional · not shown on the lender handout)</small></span>
+      <textarea name="gradeNote" rows="2"
+        placeholder="Optional notes for instructors only…">${esc(extractInstructorNote(sub.gradeDerivation))}</textarea>
     </label>
-    <button type="submit" class="btn btn-primary">${isEdit ? 'Update grade' : 'Save grade &amp; release to student'}</button>
+
+    <label class="field"><span>Feedback to student <small class="field-hint">(student-facing; optional)</small></span>
+      <textarea name="feedback" rows="4" placeholder="What was strong, what to improve…">${esc(sub.feedback || '')}</textarea>
+    </label>
+
+    <div class="grade-form-actions">
+      <button type="submit" class="btn btn-primary">${isEdit ? 'Save' : 'Save &amp; release to student'}</button>
+    </div>
   </form>`;
 }
 
@@ -1825,6 +1968,12 @@ function render() {
     render._refocusSearch = false;
   }
 
+  // Grade form: show live sum of Grading Breakdown points after paint.
+  const gradeForm = document.getElementById('gradeForm');
+  if (gradeForm) {
+    updateBreakdownSumDisplay(gradeForm, sumBreakdownPoints(gradeForm));
+  }
+
   // Discussion: pin the feed to the newest message, restore the in-progress
   // draft, and keep focus if the student was typing or just posted.
   const feedEl = document.getElementById('discFeed');
@@ -1899,7 +2048,27 @@ app.addEventListener('click', async (e) => {
       toast('Removed from approved list');
       render();
       break;
+    case 'curric-edit':
+      curricEditing = true;
+      render();
+      break;
+    case 'curric-save':
+      curricEditing = false;
+      toast('Curriculum saved ✓');
+      render();
+      break;
+    case 'curric-cancel':
+      curricEditing = false;
+      toast('Exited edit mode');
+      render();
+      break;
+    case 'save-curric-week': {
+      const wk = Number(d.week);
+      toast(`Week ${wk} saved ✓`);
+      break;
+    }
     case 'add-curric-week': {
+      curricEditing = true;
       const n = store.addCurriculumWeek();
       curricOpenWeek = n;
       toast(`Week ${n} added`);
@@ -2081,8 +2250,118 @@ app.addEventListener('click', async (e) => {
       toast('Word document downloaded');
       break;
     }
+    case 'export-lender-pdf': {
+      const packet = store.getStudentLenderPacket(d.id);
+      if (!packet) {
+        toast('Student not found');
+        break;
+      }
+      exportLenderPacket(packet, { mode: 'print' });
+      toast('Opening training record — use Save as PDF');
+      break;
+    }
+    case 'export-lender-word': {
+      const packet = store.getStudentLenderPacket(d.id);
+      if (!packet) {
+        toast('Student not found');
+        break;
+      }
+      const slug = (packet.student.name || 'student').replace(/\s+/g, '-').toLowerCase();
+      exportLenderPacket(packet, { mode: 'word', filename: `umof-lender-packet-${slug}-${todayISO()}.doc` });
+      toast('Training record (Word) downloaded');
+      break;
+    }
+    case 'export-lender-csv': {
+      const packet = store.getStudentLenderPacket(d.id);
+      if (!packet) {
+        toast('Student not found');
+        break;
+      }
+      const cols = ['Student', 'Email', 'Assessment', 'Status', 'Score'];
+      const rows = packet.assessments.map((a) => {
+        const sub = a.submission;
+        return [
+          packet.student.name,
+          packet.student.email,
+          a.quiz.title,
+          sub ? sub.status : 'not_started',
+          sub?.status === 'graded' ? `${sub.score}${a.unit}` : '',
+        ];
+      });
+      const slug = (packet.student.name || 'student').replace(/\s+/g, '-').toLowerCase();
+      downloadCSV(cols, rows, `umof-scores-${slug}-${todayISO()}.csv`);
+      toast('Scores CSV downloaded');
+      break;
+    }
+    case 'apply-q-sum': {
+      const form = document.getElementById('gradeForm');
+      if (!form) break;
+      const sum = sumBreakdownPoints(form);
+      if (sum == null) {
+        toast('Enter at least one breakdown score first');
+        break;
+      }
+      const scoreInput = form.querySelector('#gradeScoreInput') || form.score;
+      if (scoreInput) scoreInput.value = Math.round(sum);
+      updateBreakdownSumDisplay(form, sum);
+      toast(`Final score set to ${Math.round(sum)}`);
+      break;
+    }
   }
 });
+
+/** Pull optional instructor-only note out of a stored gradeDerivation string. */
+function extractInstructorNote(derivation) {
+  if (!derivation) return '';
+  const text = String(derivation);
+  const marker = '\n\nInstructor note: ';
+  const i = text.indexOf(marker);
+  if (i >= 0) return text.slice(i + marker.length);
+  if (text.startsWith('Grading Breakdown')) return '';
+  return text;
+}
+
+/** Sum Grading Breakdown criterion inputs on the grade form (null if none filled). */
+function sumBreakdownPoints(form) {
+  const inputs = form.querySelectorAll('.gb-score-input');
+  if (!inputs.length) return null;
+  let sum = 0;
+  let any = false;
+  inputs.forEach((inp) => {
+    const v = Number(inp.value);
+    if (inp.value !== '' && Number.isFinite(v)) {
+      sum += v;
+      any = true;
+    }
+  });
+  return any ? sum : null;
+}
+
+function updateBreakdownSumDisplay(form, sum) {
+  const text = sum == null ? '—' : String(Math.round(sum));
+  const sumEl = form.querySelector('#qScoreSum') || document.getElementById('qScoreSum');
+  if (sumEl) sumEl.textContent = text;
+  const hintEl = form.querySelector('#qScoreSumHint') || document.getElementById('qScoreSumHint');
+  if (hintEl) hintEl.textContent = text;
+}
+
+/** Collect rubric criterion points from the grade form. */
+function collectRubricScores(form) {
+  const inputs = form.querySelectorAll('.gb-score-input');
+  if (!inputs.length) return null;
+  const scores = {};
+  let any = false;
+  inputs.forEach((inp) => {
+    const cid = inp.dataset.cid;
+    if (!cid) return;
+    if (inp.value === '') return;
+    const v = Number(inp.value);
+    if (!Number.isFinite(v)) return;
+    scores[cid] = v;
+    any = true;
+  });
+  return any ? scores : null;
+}
 
 app.addEventListener('submit', async (e) => {
   const form = e.target;
@@ -2228,7 +2507,7 @@ app.addEventListener('submit', async (e) => {
   }
 
   if (form.id === 'nameForm') {
-    const res = await updateDisplayName(form.name.value);
+    const res = await updateDisplayName(displayNameWithCfwf(form.name.value));
     toast(res.ok ? 'Name updated ✓' : res.error || 'Could not update name');
     if (res.ok) render();
     return;
@@ -2306,15 +2585,96 @@ app.addEventListener('submit', async (e) => {
       toast(`Score must be between 0 and ${max}`);
       return;
     }
+
+    const internalNote = (form.gradeNote?.value || form.gradeDerivation?.value || '').trim();
+
+    // Grading Breakdown (5 criteria × 20) for written / manual assignments.
+    let questionScores = null;
+    let scoringMethod = 'instructor';
+    let gradeDerivation = internalNote;
+
+    if (form.dataset.rubric === '1') {
+      questionScores = collectRubricScores(form);
+      if (!questionScores) {
+        toast('Enter the Grading Breakdown points for each criterion');
+        return;
+      }
+      // Validate each criterion is within 0–max.
+      for (const c of store.GRADING_BREAKDOWN) {
+        if (questionScores[c.id] == null) {
+          toast(`Enter points for “${c.label}”`);
+          return;
+        }
+        const v = Number(questionScores[c.id]);
+        if (!Number.isFinite(v) || v < 0 || v > c.max) {
+          toast(`“${c.label}” must be between 0 and ${c.max}`);
+          return;
+        }
+        questionScores[c.id] = Math.round(v);
+      }
+      const sum = store.GRADING_BREAKDOWN.reduce((acc, c) => acc + Number(questionScores[c.id] || 0), 0);
+      // Prefer the rubric total as the final score when they differ.
+      if (score !== sum) {
+        score = Math.round(sum);
+        const scoreInput = form.querySelector('#gradeScoreInput') || form.score;
+        if (scoreInput) scoreInput.value = score;
+      }
+      scoringMethod = 'rubric';
+      // Lender-facing derivation is always the aligned breakdown table text.
+      gradeDerivation = store.formatGradingBreakdown(questionScores, score, max);
+      // Keep optional internal note only if it is not the auto breakdown text.
+      if (internalNote && !internalNote.startsWith('Grading Breakdown')) {
+        // Stored only in gradeDerivation would overwrite — append as instructor note.
+        gradeDerivation = `${gradeDerivation}\n\nInstructor note: ${internalNote}`;
+      }
+    } else if (quiz?.type === 'auto') {
+      scoringMethod = 'auto';
+      if (!gradeDerivation) {
+        const sub0 = store.getProgress(studentId).submissions?.[quizId];
+        if (sub0?.correct != null && sub0?.total) {
+          gradeDerivation = `Auto-scored: ${sub0.correct} of ${sub0.total} questions correct → ${score}%. Formula: (correct ÷ total) × 100, rounded.`;
+        } else {
+          gradeDerivation = `Auto-scored multiple-choice: final score ${score}%.`;
+        }
+      }
+    }
+
+    const admin = currentUser();
     const wasGraded = store.getProgress(studentId).submissions?.[quizId]?.status === 'graded';
-    store.gradeSubmission(studentId, quizId, score, form.feedback.value.trim(), todayISO());
-    toast(wasGraded ? 'Grade updated ✓' : 'Grade saved & released ✓');
+    store.gradeSubmission(
+      studentId,
+      quizId,
+      {
+        score,
+        feedback: form.feedback.value.trim(),
+        gradeDerivation,
+        questionScores,
+        scoringMethod,
+        gradedBy: displayNameWithCfwf(admin?.name || admin?.email || 'Instructor'),
+      },
+      todayISO()
+    );
+    toast(wasGraded ? 'Grade & breakdown updated ✓' : 'Grade saved with breakdown ✓');
     go('admin-student', { id: studentId });
     return;
   }
 });
 
 app.addEventListener('input', (e) => {
+  // Live sum of Grading Breakdown points on the grade form (no full re-render).
+  if (e.target?.classList?.contains('gb-score-input')) {
+    const form = e.target.closest('#gradeForm');
+    if (form) {
+      const sum = sumBreakdownPoints(form);
+      updateBreakdownSumDisplay(form, sum);
+      // Keep final score in sync as criteria are filled.
+      if (sum != null) {
+        const scoreInput = form.querySelector('#gradeScoreInput') || form.score;
+        if (scoreInput) scoreInput.value = Math.round(sum);
+      }
+    }
+  }
+
   const hit = actionFrom(e);
   if (!hit) return;
   if (hit.action === 'crm-search') {

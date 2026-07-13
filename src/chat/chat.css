@@ -20,19 +20,19 @@
   height: 56px;
   border: none;
   border-radius: 999px;
-  background: var(--maroon, #6e1423);
+  background: linear-gradient(135deg, var(--maroon, #5c0f1c), var(--maroon-700, #4a0c17));
   color: #fff;
   font-family: inherit;
-  font-size: 0.95rem;
-  font-weight: 600;
+  font-size: 0.94rem;
+  font-weight: 650;
   cursor: pointer;
-  box-shadow: var(--shadow, 0 14px 40px rgba(63, 10, 19, 0.16));
-  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  box-shadow: 0 12px 32px rgba(42, 8, 16, 0.28);
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.22s ease, background 0.18s ease;
 }
 .umof-chat-launcher:hover {
-  background: var(--maroon-700, #5a101c);
+  background: linear-gradient(135deg, var(--maroon-700, #4a0c17), var(--maroon-900, #2a0810));
   transform: translateY(-2px);
-  box-shadow: var(--shadow-lg, 0 30px 70px rgba(63, 10, 19, 0.22));
+  box-shadow: 0 18px 40px rgba(42, 8, 16, 0.32);
 }
 .umof-chat-launcher:focus-visible {
   outline: none;
@@ -69,11 +69,11 @@
   width: min(380px, calc(100vw - 28px));
   height: min(560px, calc(100dvh - 100px));
   background: var(--white, #fff);
-  border: 1px solid var(--line, rgba(110, 20, 35, 0.12));
-  border-radius: 20px;
+  border: 1px solid var(--line, rgba(92, 15, 28, 0.1));
+  border-radius: 22px;
   overflow: hidden;
-  box-shadow: var(--shadow-lg, 0 30px 70px rgba(63, 10, 19, 0.16));
-  animation: umof-chat-in 0.22s ease;
+  box-shadow: 0 24px 64px rgba(42, 8, 16, 0.2);
+  animation: umof-chat-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .umof-chat.is-open .umof-chat-panel {
   display: flex;
