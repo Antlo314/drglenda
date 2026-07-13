@@ -69,14 +69,19 @@ export const SEED = {
       title: 'Founder & Lead Instructor',
       phone: '(770) 555-0100',
     },
+    // Anthony Carr — real student email used on the live site. Kept as a
+    // student in demo mode so roster / grading / My Tests behave like prod
+    // after restore (never seed this email as admin — that hid his scores).
     {
-      id: 'u-admin-glenda',
-      role: 'admin',
-      name: 'Dr. Glenda S. Williams, CFWF',
+      id: 'u-anthony',
+      role: 'student',
+      name: 'Anthony Carr',
       email: 'iamwhoiambook@gmail.com',
-      password: '1234',
-      title: 'Founder & Lead Instructor',
-      phone: '(770) 555-0100',
+      password: 'demo1234',
+      phone: '',
+      cohort: 'Summer 2026',
+      enrolled: '2026-06-10',
+      plan: 'Full Program',
     },
     { id: 'u-jordan', role: 'student', name: 'Jordan Ellis', email: 'jordan@umof.org', password: 'demo1234', phone: '(404) 555-0142', cohort: 'Summer 2026', enrolled: '2026-06-10', plan: 'Full Program' },
     { id: 'u-maya', role: 'student', name: 'Maya Thompson', email: 'maya@umof.org', password: 'demo1234', phone: '(678) 555-0188', cohort: 'Summer 2026', enrolled: '2026-06-09', plan: 'Full Program' },
@@ -177,6 +182,12 @@ export const SEED = {
   // Submissions are keyed by the single per-week test id (qw1). Written-test
   // answers are keyed by question id (qw1-1 … qw1-5).
   progress: {
+    // Live scores for Anthony live in Supabase submissions — demo starts empty
+    // so a "reset demo data" can't invent grades for a real student.
+    'u-anthony': {
+      completed: [],
+      submissions: {},
+    },
     'u-jordan': {
       completed: ['s1', 's2', 's3', 's4'],
       submissions: {
@@ -196,7 +207,7 @@ export const SEED = {
           type: 'manual', status: 'graded', score: 91,
           feedback: 'Strong, well-articulated answers. Expand a little on readiness in Q5.',
           gradeDerivation:
-            'Grading Breakdown\n\nCriteria    Points\nCompleted all questions    20/20\nUnderstanding of concepts    18/20\nDepth of reflection    17/20\nOrganization and clarity    16/20\nGrammar, punctuation, and sentence structure    20/20\n\nTotal    91/100',
+            'Grading Breakdown\n\nCriteria    Points\nCompleted all questions    20/20\nUnderstanding of concepts    18/20\nDepth of reflection    17/20\nOrganization, clarity, and timeliness    16/20\nGrammar, punctuation, and sentence structure    20/20\n\nTotal    91/100',
           questionScores: {
             completed: 20, understanding: 18, reflection: 17, organization: 16, grammar: 20,
           },
@@ -239,7 +250,7 @@ export const SEED = {
           type: 'manual', status: 'graded', score: 88,
           feedback: 'Great work. Give a second characteristic more detail in Q4.',
           gradeDerivation:
-            'Grading Breakdown\n\nCriteria    Points\nCompleted all questions    20/20\nUnderstanding of concepts    18/20\nDepth of reflection    17/20\nOrganization and clarity    16/20\nGrammar, punctuation, and sentence structure    17/20\n\nTotal    88/100',
+            'Grading Breakdown\n\nCriteria    Points\nCompleted all questions    20/20\nUnderstanding of concepts    18/20\nDepth of reflection    17/20\nOrganization, clarity, and timeliness    16/20\nGrammar, punctuation, and sentence structure    17/20\n\nTotal    88/100',
           questionScores: {
             completed: 20, understanding: 18, reflection: 17, organization: 16, grammar: 17,
           },
@@ -272,6 +283,7 @@ export const SEED = {
 
   // ---- Approved-student emails (who may create an account) -------------------
   allowedStudents: [
+    { email: 'iamwhoiambook@gmail.com', note: 'Anthony Carr — Summer 2026 cohort' },
     { email: 'jordan@umof.org', note: 'Summer 2026 cohort' },
     { email: 'maya@umof.org', note: 'Summer 2026 cohort' },
   ],

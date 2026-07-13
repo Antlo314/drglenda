@@ -13,7 +13,7 @@ alter table public.submissions
 comment on column public.submissions.grade_derivation is
   'Instructor or system explanation of how the final score was determined.';
 comment on column public.submissions.question_scores is
-  'Optional map of criterion_id (or question_id) → points. Rubric keys: completed, understanding, reflection, organization, grammar (each /20).';
+  'Optional map of criterion_id (or question_id) → points. Rubric keys: completed, understanding, reflection, organization (org/clarity/timeliness), grammar (each /20).';
 comment on column public.submissions.scoring_method is
   'auto | rubric | per_question | instructor — how the score was produced.';
 comment on column public.submissions.graded_by is

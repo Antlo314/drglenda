@@ -297,7 +297,22 @@ export async function hydrate(user) {
    READS (synchronous, against the cache)
    ======================================================================== */
 export const getUsers = () => state.users;
-export const getStudents = () => state.users.filter((u) => u.role === 'student');
+/**
+ * Students for roster / CRM / grading.
+ * Includes role === 'student', plus anyone who has progress/submissions even if
+ * they were accidentally promoted to admin (so test scores stay visible).
+ * Pure instructors (admin, no student work) stay off the student list.
+ */
+export const getStudents = () =>
+  state.users.filter((u) => {
+    if (u.role === 'student') return true;
+    const prog = state.progress[u.id];
+    if (!prog) return false;
+    const hasWork =
+      (prog.completed && prog.completed.length > 0) ||
+      (prog.submissions && Object.keys(prog.submissions).length > 0);
+    return hasWork;
+  });
 export const getUserById = (id) => state.users.find((u) => u.id === id) || null;
 export const getSessions = () => [...state.sessions].sort((a, b) => a.week - b.week);
 export const getSessionById = (id) => state.sessions.find((s) => s.id === id) || null;
@@ -577,7 +592,7 @@ export const GRADING_BREAKDOWN = [
   { id: 'completed', label: 'Completed all questions', max: 20 },
   { id: 'understanding', label: 'Understanding of concepts', max: 20 },
   { id: 'reflection', label: 'Depth of reflection', max: 20 },
-  { id: 'organization', label: 'Organization and clarity', max: 20 },
+  { id: 'organization', label: 'Organization, clarity, and timeliness', max: 20 },
   { id: 'grammar', label: 'Grammar, punctuation, and sentence structure', max: 20 },
 ];
 
