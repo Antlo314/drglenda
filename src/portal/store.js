@@ -171,7 +171,7 @@ const mapMaterial = (r) => {
 };
 const mapProfile = (r) => ({
   id: r.id, role: r.role, name: r.name, email: r.email, phone: r.phone,
-  title: r.title, cohort: r.cohort, enrolled: d10(r.enrolled), plan: r.plan,
+  title: r.title, cohort: r.cohort, enrolled: r.enrolled, plan: r.plan,
   grantAwarded: !!r.grant_awarded, grantAmount: Number(r.grant_amount) || 0,
 });
 // A class-discussion post. `author_name`/`author_role` are denormalized on the
@@ -189,7 +189,7 @@ const mapSubmission = (r) => ({
   questionScores: r.question_scores || null,
   scoringMethod: r.scoring_method || null,
   gradedBy: r.graded_by || '',
-  submittedAt: d10(r.submitted_at), gradedAt: d10(r.graded_at),
+  submittedAt: r.submitted_at, gradedAt: r.graded_at,
 });
 const mapCurriculum = (r) => ({
   title: r.title || '',
@@ -307,14 +307,14 @@ export async function hydrate(user) {
   if (isAdmin) {
     const { data: leads } = await supabase.from('leads').select('*');
     next.leads = (leads || []).map((l) => ({
-      ...l, createdAt: d10(l.created_at),
+      ...l, createdAt: l.created_at,
       grantAwarded: !!l.grant_awarded, grantAmount: Number(l.grant_amount) || 0,
     }));
     const { data: allowed } = await supabase
       .from('allowed_students')
       .select('*')
       .order('added_at', { ascending: false });
-    next.allowedStudents = (allowed || []).map((a) => ({ email: a.email, note: a.note || '', addedAt: d10(a.added_at) }));
+    next.allowedStudents = (allowed || []).map((a) => ({ email: a.email, note: a.note || '', addedAt: a.added_at }));
   }
 
   set(next);
@@ -952,7 +952,7 @@ export function startRealtime(user, onChange) {
       const { data } = await supabase.from('leads').select('*');
       const next = structuredClone(state);
       next.leads = (data || []).map((l) => ({
-        ...l, createdAt: d10(l.created_at),
+        ...l, createdAt: l.created_at,
         grantAwarded: !!l.grant_awarded, grantAmount: Number(l.grant_amount) || 0,
       }));
       set(next);

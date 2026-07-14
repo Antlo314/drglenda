@@ -48,7 +48,7 @@ const todayISO = () => {
 
 const fmtDate = (iso) => {
   if (!iso) return '—';
-  const d = new Date(iso + 'T00:00:00');
+  const d = new Date(iso.length === 10 ? iso + 'T00:00:00' : iso);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
