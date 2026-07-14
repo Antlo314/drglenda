@@ -1119,6 +1119,21 @@ button { font-family: inherit; }
   border-color: var(--ok);
   box-shadow: 0 1px 4px rgba(42, 122, 75, 0.25);
 }
+.check-row-btn {
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  padding: 9px 6px;
+  margin: 0 -6px;
+  border-radius: 8px;
+  transition: background var(--dur) var(--ease);
+}
+.check-row-btn:hover { background: var(--surface-2); }
+.check-row-btn:hover .check:not(.on) { border-color: var(--ok); }
 
 /* grade form */
 .grade-row {

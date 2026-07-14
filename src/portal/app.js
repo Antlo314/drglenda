@@ -38,7 +38,13 @@ const esc = (v) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
   );
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => {
+  const d = new Date();
+  const yr = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const dy = String(d.getDate()).padStart(2, '0');
+  return `${yr}-${mo}-${dy}`;
+};
 
 const fmtDate = (iso) => {
   if (!iso) return '—';
@@ -374,7 +380,6 @@ function weekBlock(w, open) {
     ${head}
     <div class="wk-body">
       ${section('Learning Objectives', list(w.objectives, false))}
-      ${section('Step-by-Step Guide', list(w.steps, true))}
       ${section('Assignment', w.assignment ? `<p class="wk-callout wk-assign">${esc(w.assignment)}</p>` : '')}
       ${section('Discussion Post', w.discussion ? `<p class="wk-callout wk-discuss">“${esc(w.discussion)}”</p>` : '')}
       ${section('Weekly Quiz', list(w.quiz, true))}
@@ -414,10 +419,7 @@ function weekEditor(w, open) {
         <textarea rows="4" placeholder="Understand the entrepreneurial journey.&#10;Identify characteristics of successful entrepreneurs."
           data-action="curric-week-objectives" data-week="${wk}">${esc(linesText(w.objectives))}</textarea>
       </label>
-      <label class="field"><span>Step-by-step guide <em class="muted">(one per line)</em></span>
-        <textarea rows="4" placeholder="Define your Why.&#10;Identify your target market."
-          data-action="curric-week-steps" data-week="${wk}">${esc(linesText(w.steps))}</textarea>
-      </label>
+
       <label class="field"><span>Assignment</span>
         <textarea rows="2" placeholder="Create a one-page Business Vision Plan."
           data-action="curric-week-assignment" data-week="${wk}">${esc(w.assignment || '')}</textarea>
@@ -1244,8 +1246,10 @@ function adminStudentDetail() {
         ${sessions
           .map((x) => {
             const done = prog.completed.includes(x.id);
-            return `<div class="check-row"><span class="${done ? 'check on' : 'check'}">${done ? '✓' : ''}</span>
-              <span>W${x.week} · ${esc(x.title)}</span></div>`;
+            return `<button class="check-row check-row-btn" data-action="admin-toggle-complete" data-student="${s.id}" data-id="${x.id}" title="${done ? 'Click to mark incomplete' : 'Click to mark complete'}">
+              <span class="${done ? 'check on' : 'check'}">${done ? '✓' : ''}</span>
+              <span>W${x.week} · ${esc(x.title)}</span>
+            </button>`;
           })
           .join('')}
       </div>
@@ -1401,7 +1405,7 @@ function gradeView() {
         ? quiz.questions
         : Object.keys(sub.answers || {}).map((id) => ({ id, prompt: id }));
     submissionPanel = `<section class="panel"><div class="panel-head"><h2>Student answers</h2>
-        <span class="muted">${qList.length} free-response questions · score with Grading Breakdown below</span></div>
+        <span class="muted">${qList.length} question${qList.length === 1 ? '' : 's'} · score with Grading Breakdown below</span></div>
         ${qList
           .map((qq, i) => `<div class="review-q">
             <p class="rq-prompt">${i + 1}. ${esc(qq.prompt)}</p>
@@ -2164,6 +2168,16 @@ app.addEventListener('click', async (e) => {
       const isDone = prog.completed.includes(d.id);
       store.setSessionComplete(user.id, d.id, !isDone);
       toast(isDone ? 'Marked as not done' : 'Session marked complete ✓');
+      render();
+      break;
+    }
+    case 'admin-toggle-complete': {
+      const studentId = d.student;
+      const sessionId = d.id;
+      const prog = store.getProgress(studentId);
+      const isDone = prog.completed.includes(sessionId);
+      store.setSessionComplete(studentId, sessionId, !isDone);
+      toast(isDone ? 'Marked as incomplete' : 'Session marked complete for student ✓');
       render();
       break;
     }
