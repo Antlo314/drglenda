@@ -229,11 +229,64 @@ button { font-family: inherit; }
 .auth-card h1 { font-size: 1.65rem; }
 .auth-sub {
   color: var(--muted);
-  margin: 10px 0 24px;
+  margin: 10px 0 12px;
   font-size: 0.92rem;
   line-height: 1.55;
 }
+.auth-audience {
+  list-style: none;
+  margin: 0 0 22px;
+  padding: 12px 14px;
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.88rem;
+  color: var(--ink);
+  line-height: 1.4;
+}
+.auth-audience strong { color: var(--maroon-900); font-weight: 650; }
+.auth-staff-note {
+  margin-top: 16px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.45;
+  text-align: center;
+}
+.auth-hint {
+  margin: -4px 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.field-error {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #9a2222;
+  line-height: 1.35;
+}
+.field input[aria-invalid="true"],
+.field textarea[aria-invalid="true"] {
+  border-color: rgba(154, 34, 34, 0.55);
+  background: #fff8f8;
+}
 .auth-form { display: flex; flex-direction: column; gap: 15px; }
+.auth-form.is-busy { opacity: 0.72; pointer-events: none; }
+.auth-form .btn-full { min-height: 48px; }
+.auth-demo code {
+  font-size: 0.8em;
+  background: var(--cream-2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--maroon-900);
+}
+.portal-load-error {
+  padding: 24px 16px;
+}
+.portal-load-error .auth-card { text-align: left; }
 .field { display: flex; flex-direction: column; gap: 7px; }
 .field span { font-weight: 600; font-size: 0.82rem; color: var(--ink); letter-spacing: 0.01em; }
 .field input,

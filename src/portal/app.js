@@ -5,8 +5,9 @@
 import './portal.css';
 import * as store from './store.js';
 import {
-  login, logout, currentUser, initAuth,
+  login, logout, currentUser, initAuth, clearCachedUser, refreshSessionUser,
   signUp, requestPasswordReset, updatePassword, updateDisplayName, onAuthEvent,
+  normalizeEmail, mapAuthError,
 } from './auth.js';
 import { downloadCSV, exportPDF, exportWord } from './export.js';
 import { USE_SUPABASE, SESSIONS_LOCKED } from './config.js';
@@ -141,7 +142,11 @@ let disc = { draft: '', replyToId: null, focusAfterRender: false };
 let authScreen = 'login'; // 'login' | 'signup' | 'forgot'
 let authError = '';
 let authInfo = '';
+let authFieldErrors = {}; // { email?, password?, name?, confirm? }
+let authForm = { email: '', name: '' }; // durable across re-renders; never store password
+let authFocus = null; // field name to focus after render ('password' | 'email' | …)
 let recoveryMode = false; // user arrived via a password-reset link
+let portalLoadError = null; // hydrate failed after successful auth
 
 function go(name, params = {}) {
   route = { name, params };
@@ -168,6 +173,8 @@ function goAuth(screen) {
   authScreen = screen;
   authError = '';
   authInfo = '';
+  authFieldErrors = {};
+  // Keep email (and name) when switching login ↔ forgot ↔ signup
   render();
 }
 
@@ -176,25 +183,109 @@ function liveRerender() {
   if (currentUser()) render();
 }
 
-/** Shared post-authentication entry: load data, start realtime, show dashboard. */
-async function enterApp(user) {
-  await store.hydrate(user);
-  store.startRealtime(user, liveRerender);
-  store.startDiscussionRealtime(user, liveRerender);
-  go(user.role === 'admin' ? 'admin-home' : 'student-home');
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateEmail(value) {
+  const em = normalizeEmail(value);
+  if (!em) return 'Enter your email address.';
+  if (!EMAIL_RE.test(em)) return 'Enter a valid email address.';
+  return '';
+}
+
+function validatePassword(value, { min = 0, label = 'Password' } = {}) {
+  const pw = String(value || '');
+  if (!pw) return `Enter your ${label.toLowerCase()}.`;
+  if (min > 0 && pw.length < min) return `${label} must be at least ${min} characters.`;
+  return '';
+}
+
+function fieldErr(name) {
+  const msg = authFieldErrors[name];
+  if (!msg) return '';
+  return `<p class="field-error" id="err-${esc(name)}" role="alert">${esc(msg)}</p>`;
+}
+
+function inputAria(name) {
+  const bad = !!authFieldErrors[name];
+  return `${bad ? ` aria-invalid="true" aria-describedby="err-${esc(name)}"` : ''}`;
+}
+
+function setFormBusy(form, busy, label) {
+  if (!form) return () => {};
+  form.classList.toggle('is-busy', !!busy);
+  const btn = form.querySelector('button[type="submit"]');
+  const prev = btn?.textContent;
+  form.querySelectorAll('input, textarea, button').forEach((el) => {
+    if (el.dataset.action === 'toggle-pw') return; // allow show/hide while typing before submit
+    if (busy) el.disabled = true;
+    else if (el.type !== 'submit') el.disabled = false;
+  });
+  if (btn) {
+    if (busy) {
+      btn.disabled = true;
+      if (label) btn.textContent = label;
+    } else {
+      btn.disabled = false;
+      if (prev && label) btn.textContent = prev;
+    }
+  }
+  const stored = btn ? { text: prev } : null;
+  return () => {
+    form.classList.remove('is-busy');
+    form.querySelectorAll('input, textarea, button').forEach((el) => {
+      el.disabled = false;
+    });
+    if (btn && stored?.text) btn.textContent = stored.text;
+  };
 }
 
 /** Disable a form's submit button and show a working label. Returns restore fn. */
 function setBusy(form, label) {
-  const btn = form.querySelector('button[type="submit"]');
-  if (!btn) return () => {};
-  const prev = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = label;
-  return () => {
-    btn.disabled = false;
-    btn.textContent = prev;
-  };
+  return setFormBusy(form, true, label);
+}
+
+function loadingShell(msg = 'Loading your portal…') {
+  return `<div class="portal-loading"><span class="spinner" aria-hidden="true"></span>${esc(msg)}</div>`;
+}
+
+function loadErrorShell(msg) {
+  return `
+  <div class="portal-loading portal-load-error">
+    <div class="auth-card" style="max-width:420px;text-align:center">
+      <h1 style="font-size:1.35rem;margin-bottom:10px">Couldn’t load your portal</h1>
+      <p class="auth-error" role="alert">${esc(msg)}</p>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
+        <button type="button" class="btn btn-primary btn-full" data-action="retry-enter">Try again</button>
+        <button type="button" class="btn btn-outline btn-full" data-action="logout">Sign out</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/**
+ * Shared post-authentication entry: load data, start realtime, show dashboard.
+ * Never leaves a half-loaded shell on hydrate failure.
+ */
+async function enterApp(user) {
+  if (!user) return;
+  portalLoadError = null;
+  app.innerHTML = loadingShell(
+    user.role === 'admin' ? 'Loading instructor workspace…' : 'Loading your portal…'
+  );
+  try {
+    await store.hydrate(user);
+    store.startRealtime(user, liveRerender);
+    store.startDiscussionRealtime(user, liveRerender);
+    route = { name: user.role === 'admin' ? 'admin-home' : 'student-home', params: {} };
+    portalLoadError = null;
+    render();
+    document.querySelector('.portal-main')?.scrollTo(0, 0);
+  } catch (err) {
+    console.error('[portal] enterApp failed:', err);
+    portalLoadError = mapAuthError(err?.message || err, 'login') ||
+      'We signed you in, but couldn’t load your data. Check your connection and try again.';
+    app.innerHTML = loadErrorShell(portalLoadError);
+  }
 }
 
 /* ===========================================================================
@@ -215,89 +306,112 @@ function authShell(inner) {
 }
 
 function authMsgs() {
-  return `${authError ? `<p class="auth-error">${esc(authError)}</p>` : ''}${
-    authInfo ? `<p class="auth-ok">${esc(authInfo)}</p>` : ''
+  return `${authError ? `<p class="auth-error" role="alert">${esc(authError)}</p>` : ''}${
+    authInfo ? `<p class="auth-ok" role="status">${esc(authInfo)}</p>` : ''
   }`;
 }
 
+function pwField(name, { autocomplete, placeholder, label }) {
+  return `<label class="field"><span>${esc(label)}</span>
+    <div class="pw-wrap">
+      <input type="password" name="${esc(name)}" autocomplete="${esc(autocomplete)}"
+        placeholder="${esc(placeholder)}"${inputAria(name)} />
+      <button type="button" class="pw-toggle" data-action="toggle-pw" aria-label="Show password">Show</button>
+    </div>
+    ${fieldErr(name)}
+  </label>`;
+}
+
 function viewLogin() {
+  const em = esc(authForm.email || '');
   return authShell(`
     <h1>Sign in</h1>
-    <p class="auth-sub">Students access class sessions, notes &amp; tests. Instructors manage progress, grading &amp; the CRM.</p>
+    <p class="auth-sub">One portal for everyone at UMOF.</p>
+    <ul class="auth-audience" aria-label="Who this portal is for">
+      <li><strong>Students</strong> — classes, tests, discussion</li>
+      <li><strong>Instructors</strong> — grading, students, CRM</li>
+    </ul>
     <form id="loginForm" class="auth-form" novalidate>
       <label class="field"><span>Email</span>
-        <input type="email" name="email" autocomplete="username" inputmode="email" placeholder="you@example.com" required />
+        <input type="email" name="email" autocomplete="username" inputmode="email"
+          placeholder="you@example.com" value="${em}" data-action="auth-field"${inputAria('email')} />
+        ${fieldErr('email')}
       </label>
-      <label class="field"><span>Password</span>
-        <div class="pw-wrap">
-          <input type="password" name="password" autocomplete="current-password" placeholder="••••••••" required />
-          <button type="button" class="pw-toggle" data-action="toggle-pw" aria-label="Show password">Show</button>
-        </div>
-      </label>
+      ${pwField('password', { autocomplete: 'current-password', placeholder: 'Your password', label: 'Password' })}
       ${authMsgs()}
       <button type="submit" class="btn btn-primary btn-full">Sign in</button>
     </form>
     ${
       USE_SUPABASE
         ? `<div class="auth-links">
-            <button class="link-btn" data-action="auth-screen" data-screen="forgot">Forgot password?</button>
+            <button type="button" class="link-btn" data-action="auth-screen" data-screen="forgot">Forgot password?</button>
           </div>
           <div class="auth-newcta">
-            <span class="auth-newcta-label">First time here?</span>
-            <button class="btn btn-outline btn-full" data-action="auth-screen" data-screen="signup">Create your student login</button>
-            <small>Use the email address UMOF has on file for your enrollment.</small>
-          </div>`
+            <span class="auth-newcta-label">New student?</span>
+            <button type="button" class="btn btn-outline btn-full" data-action="auth-screen" data-screen="signup">Create your student login</button>
+            <small>Use the exact enrollment email UMOF has on file.</small>
+          </div>
+          <p class="auth-staff-note">Instructors: sign in with the account UMOF issued — there is no public staff signup.</p>`
         : `<div class="auth-demo">
-        <p>Demo logins — click to try instantly:</p>
+        <p>Demo logins — try either role:</p>
         <div class="auth-demo-btns">
-          <button class="btn btn-outline btn-sm" data-action="demo" data-role="student">Student demo</button>
-          <button class="btn btn-outline btn-sm" data-action="demo" data-role="admin">Admin / Instructor demo</button>
+          <button type="button" class="btn btn-outline btn-sm" data-action="demo" data-role="student">Student demo</button>
+          <button type="button" class="btn btn-outline btn-sm" data-action="demo" data-role="admin">Admin / Instructor demo</button>
         </div>
-        <small>student: jordan@umof.org · admin: admin@umof.org — password for both: shown on click</small>
+        <small>
+          Student: <code>jordan@umof.org</code> · password <code>demo1234</code><br />
+          Admin: <code>admin@umof.org</code> · password <code>admin1234</code>
+        </small>
       </div>`
     }
   `);
 }
 
 function viewSignup() {
+  const em = esc(authForm.email || '');
+  const nm = esc(authForm.name || '');
   return authShell(`
     <h1>Create your student login</h1>
-    <p class="auth-sub">Enrolled students only. Use the exact email address UMOF has on file for you — that’s how we recognize your enrollment.</p>
+    <p class="auth-sub">Enrolled students only. Your email must match the address UMOF approved for enrollment — that’s how we recognize you.</p>
     <form id="signupForm" class="auth-form" novalidate>
       <label class="field"><span>Full name</span>
-        <input type="text" name="name" autocomplete="name" placeholder="Jane Doe" required />
+        <input type="text" name="name" autocomplete="name" placeholder="Jane Doe" value="${nm}"
+          data-action="auth-field"${inputAria('name')} />
+        ${fieldErr('name')}
       </label>
-      <label class="field"><span>Email <small class="field-hint">(your enrollment email)</small></span>
-        <input type="email" name="email" autocomplete="email" placeholder="you@example.com" required />
+      <label class="field"><span>Email <small class="field-hint">(enrollment email)</small></span>
+        <input type="email" name="email" autocomplete="email" inputmode="email" placeholder="you@example.com"
+          value="${em}" data-action="auth-field"${inputAria('email')} />
+        ${fieldErr('email')}
       </label>
-      <label class="field"><span>Password</span>
-        <div class="pw-wrap">
-          <input type="password" name="password" autocomplete="new-password" placeholder="At least 8 characters" minlength="8" required />
-          <button type="button" class="pw-toggle" data-action="toggle-pw" aria-label="Show password">Show</button>
-        </div>
-      </label>
+      ${pwField('password', { autocomplete: 'new-password', placeholder: 'At least 8 characters', label: 'Password' })}
+      ${pwField('confirm', { autocomplete: 'new-password', placeholder: 'Re-enter password', label: 'Confirm password' })}
+      <p class="auth-hint">Password must be at least 8 characters.</p>
       ${authMsgs()}
       <button type="submit" class="btn btn-primary btn-full">Create account</button>
     </form>
     <div class="auth-links">
-      <span>Already have an account? <button class="link-btn strong" data-action="auth-screen" data-screen="login">Sign in</button></span>
+      <span>Already have an account? <button type="button" class="link-btn strong" data-action="auth-screen" data-screen="login">Sign in</button></span>
     </div>
   `);
 }
 
 function viewForgot() {
+  const em = esc(authForm.email || '');
   return authShell(`
     <h1>Reset your password</h1>
-    <p class="auth-sub">Enter your email and we’ll send you a link to set a new password.</p>
+    <p class="auth-sub">Enter your email and we’ll send a link to set a new password. For security, we won’t say whether the email is registered.</p>
     <form id="forgotForm" class="auth-form" novalidate>
       <label class="field"><span>Email</span>
-        <input type="email" name="email" autocomplete="email" placeholder="you@example.com" required />
+        <input type="email" name="email" autocomplete="email" inputmode="email" placeholder="you@example.com"
+          value="${em}" data-action="auth-field"${inputAria('email')} />
+        ${fieldErr('email')}
       </label>
       ${authMsgs()}
       <button type="submit" class="btn btn-primary btn-full">Send reset link</button>
     </form>
     <div class="auth-links">
-      <button class="link-btn" data-action="auth-screen" data-screen="login">← Back to sign in</button>
+      <button type="button" class="link-btn" data-action="auth-screen" data-screen="login">← Back to sign in</button>
     </div>
   `);
 }
@@ -305,11 +419,11 @@ function viewForgot() {
 function viewReset() {
   return authShell(`
     <h1>Set a new password</h1>
-    <p class="auth-sub">Choose a new password for your account.</p>
+    <p class="auth-sub">Choose a new password for your account. You’ll use this to sign in next time.</p>
     <form id="resetForm" class="auth-form" novalidate>
-      <label class="field"><span>New password</span>
-        <input type="password" name="password" autocomplete="new-password" placeholder="At least 8 characters" minlength="8" required />
-      </label>
+      ${pwField('password', { autocomplete: 'new-password', placeholder: 'At least 8 characters', label: 'New password' })}
+      ${pwField('confirm', { autocomplete: 'new-password', placeholder: 'Re-enter password', label: 'Confirm password' })}
+      <p class="auth-hint">Password must be at least 8 characters.</p>
       ${authMsgs()}
       <button type="submit" class="btn btn-primary btn-full">Update password</button>
     </form>
@@ -325,17 +439,26 @@ function renderAuthScreen() {
    ACCOUNT (logged in) — change name & password
    ======================================================================== */
 function accountView(user) {
+  const roleLabel = user.role === 'admin' ? 'Instructor' : 'Student';
   return `
-  <div class="page-head"><div><h1>Account</h1><p class="muted">Manage your name and password.</p></div></div>
+  <div class="page-head"><div>
+    <h1>Account</h1>
+    <p class="muted">Manage your name and password.
+      <span class="pill ${user.role === 'admin' ? 'pill-enrolled' : 'pill-todo'}" style="margin-left:8px">${esc(roleLabel)}</span>
+    </p>
+  </div></div>
   <div class="two-col">
     <section class="panel">
       <div class="panel-head"><h2>Profile</h2></div>
       <form id="nameForm" class="acct-form">
         <label class="field"><span>Display name</span>
-          <input type="text" name="name" value="${esc(displayNameWithCfwf(user.name))}" required />
+          <input type="text" name="name" value="${esc(displayNameWithCfwf(user.name))}" required autocomplete="name" />
         </label>
         <label class="field"><span>Email</span>
           <input type="email" value="${esc(user.email)}" disabled />
+        </label>
+        <label class="field"><span>Workspace</span>
+          <input type="text" value="${esc(roleLabel)}" disabled />
         </label>
         <button type="submit" class="btn btn-primary">Save name</button>
       </form>
@@ -346,11 +469,18 @@ function accountView(user) {
         USE_SUPABASE
           ? `<form id="pwForm" class="acct-form">
               <label class="field"><span>New password</span>
-                <input type="password" name="password" autocomplete="new-password" placeholder="At least 8 characters" minlength="8" required />
+                <div class="pw-wrap">
+                  <input type="password" name="password" autocomplete="new-password" placeholder="At least 8 characters" minlength="8" required />
+                  <button type="button" class="pw-toggle" data-action="toggle-pw" aria-label="Show password">Show</button>
+                </div>
               </label>
               <label class="field"><span>Confirm new password</span>
-                <input type="password" name="confirm" autocomplete="new-password" placeholder="Re-enter password" minlength="8" required />
+                <div class="pw-wrap">
+                  <input type="password" name="confirm" autocomplete="new-password" placeholder="Re-enter password" minlength="8" required />
+                  <button type="button" class="pw-toggle" data-action="toggle-pw" aria-label="Show password">Show</button>
+                </div>
               </label>
+              <p class="auth-hint">Password must be at least 8 characters.</p>
               <button type="submit" class="btn btn-primary">Update password</button>
             </form>`
           : `<p class="muted">Password management is available once the portal is connected to Supabase.</p>`
@@ -2095,15 +2225,23 @@ function render() {
   // shouldn't steal focus from the composer). Checked before we replace the DOM.
   const discWasFocused = document.activeElement?.id === 'discInput';
 
+  // Hydrate failed after a valid session — dedicated recovery UI.
+  if (portalLoadError && currentUser()) {
+    app.innerHTML = loadErrorShell(portalLoadError);
+    return;
+  }
+
   // Arrived via a password-reset link — force the "set new password" screen.
   if (recoveryMode) {
     app.innerHTML = viewReset();
+    focusAuthField();
     return;
   }
 
   const user = currentUser();
   if (!user) {
     app.innerHTML = renderAuthScreen();
+    focusAuthField();
     return;
   }
 
@@ -2179,6 +2317,22 @@ function render() {
   }
 }
 
+/** Focus a named auth field after paint (failed login → password, etc.). */
+function focusAuthField() {
+  if (!authFocus) return;
+  const name = authFocus;
+  authFocus = null;
+  requestAnimationFrame(() => {
+    const el = app.querySelector(`[name="${name}"]`);
+    if (el && typeof el.focus === 'function') {
+      el.focus();
+      if (el.select && el.type !== 'password') {
+        try { el.select(); } catch { /* ignore */ }
+      }
+    }
+  });
+}
+
 /* ===========================================================================
    EVENT WIRING (delegated)
    ======================================================================== */
@@ -2224,8 +2378,20 @@ app.addEventListener('click', async (e) => {
       authScreen = 'login';
       authError = '';
       authInfo = '';
+      authFieldErrors = {};
+      portalLoadError = null;
+      recoveryMode = false;
       render();
       break;
+    case 'retry-enter': {
+      const u = currentUser();
+      if (u) await enterApp(u);
+      else {
+        portalLoadError = null;
+        render();
+      }
+      break;
+    }
     case 'go':
       go(d.route, { id: d.id, student: d.student, quiz: d.quiz });
       break;
@@ -2565,12 +2731,30 @@ app.addEventListener('submit', async (e) => {
   e.preventDefault();
 
   if (form.id === 'loginForm') {
+    authForm.email = normalizeEmail(form.email.value);
+    authFieldErrors = {};
+    authError = '';
+    authInfo = '';
+    const emailErr = validateEmail(form.email.value);
+    const pwErr = validatePassword(form.password.value, { label: 'Password' });
+    if (emailErr) authFieldErrors.email = emailErr;
+    if (pwErr) authFieldErrors.password = pwErr;
+    if (emailErr || pwErr) {
+      authFocus = emailErr ? 'email' : 'password';
+      render();
+      return;
+    }
     const unbusy = setBusy(form, 'Signing in…');
     const res = await login(form.email.value, form.password.value);
-    if (res.ok) await enterApp(res.user);
-    else {
-      authError = res.error;
+    if (res.ok) {
+      authFieldErrors = {};
+      authError = '';
+      await enterApp(res.user);
+    } else {
+      authError = res.error || 'Email or password is incorrect.';
       authInfo = '';
+      authFieldErrors = {};
+      authFocus = 'password';
       unbusy();
       render();
     }
@@ -2578,59 +2762,117 @@ app.addEventListener('submit', async (e) => {
   }
 
   if (form.id === 'signupForm') {
+    authForm.email = normalizeEmail(form.email.value);
+    authForm.name = String(form.name.value || '').trim();
+    authFieldErrors = {};
+    authError = '';
+    authInfo = '';
+    const nameErr = !authForm.name ? 'Enter your full name.' : '';
+    const emailErr = validateEmail(form.email.value);
+    const pwErr = validatePassword(form.password.value, { min: 8, label: 'Password' });
+    const confirmErr =
+      form.password.value !== form.confirm?.value
+        ? 'Passwords don’t match.'
+        : validatePassword(form.confirm?.value, { min: 8, label: 'Confirm password' });
+    if (nameErr) authFieldErrors.name = nameErr;
+    if (emailErr) authFieldErrors.email = emailErr;
+    if (pwErr) authFieldErrors.password = pwErr;
+    if (confirmErr) authFieldErrors.confirm = confirmErr;
+    if (nameErr || emailErr || pwErr || confirmErr) {
+      authFocus = nameErr ? 'name' : emailErr ? 'email' : pwErr ? 'password' : 'confirm';
+      render();
+      return;
+    }
     const unbusy = setBusy(form, 'Creating…');
     const res = await signUp(form.name.value, form.email.value, form.password.value);
     if (!res.ok) {
       unbusy();
       authError = res.error;
       authInfo = '';
+      authFocus = 'email';
       render();
       return;
     }
     if (res.needsConfirmation) {
       authScreen = 'login';
       authError = '';
-      authInfo = 'Account created! Check your email to confirm it, then sign in.';
+      authInfo = 'Account created. Check your email to confirm it, then sign in.';
+      authFieldErrors = {};
+      authFocus = 'password';
       render();
     } else {
       authError = '';
       authInfo = '';
+      authFieldErrors = {};
       await enterApp(res.user);
     }
     return;
   }
 
   if (form.id === 'forgotForm') {
-    setBusy(form, 'Sending…');
+    authForm.email = normalizeEmail(form.email.value);
+    authFieldErrors = {};
+    authError = '';
+    authInfo = '';
+    const emailErr = validateEmail(form.email.value);
+    if (emailErr) {
+      authFieldErrors.email = emailErr;
+      authFocus = 'email';
+      render();
+      return;
+    }
+    const unbusy = setBusy(form, 'Sending…');
     const res = await requestPasswordReset(form.email.value);
+    unbusy();
     authScreen = 'login';
+    authFieldErrors = {};
     if (res.ok) {
       authError = '';
-      authInfo = 'If that email has an account, a reset link is on its way.';
+      authInfo = 'If that email has an account, a reset link is on its way. Check your inbox and spam folder.';
     } else {
       authError = res.error;
       authInfo = '';
     }
+    authFocus = 'email';
     render();
     return;
   }
 
   if (form.id === 'resetForm') {
-    setBusy(form, 'Updating…');
+    authFieldErrors = {};
+    authError = '';
+    authInfo = '';
+    const pwErr = validatePassword(form.password.value, { min: 8, label: 'New password' });
+    const confirmErr =
+      form.password.value !== form.confirm?.value
+        ? 'Passwords don’t match.'
+        : validatePassword(form.confirm?.value, { min: 8, label: 'Confirm password' });
+    if (pwErr) authFieldErrors.password = pwErr;
+    if (confirmErr) authFieldErrors.confirm = confirmErr;
+    if (pwErr || confirmErr) {
+      authFocus = pwErr ? 'password' : 'confirm';
+      render();
+      return;
+    }
+    const unbusy = setBusy(form, 'Updating…');
     const res = await updatePassword(form.password.value);
     if (!res.ok) {
+      unbusy();
       authError = res.error;
+      authFocus = 'password';
       render();
       return;
     }
     recoveryMode = false;
     authError = '';
     authInfo = '';
+    authFieldErrors = {};
     const user = await initAuth();
     if (user) await enterApp(user);
     else {
       authScreen = 'login';
-      authInfo = 'Password updated — please sign in.';
+      authInfo = 'Password updated — please sign in with your new password.';
+      authFocus = 'password';
       render();
     }
     return;
@@ -2713,11 +2955,18 @@ app.addEventListener('submit', async (e) => {
   }
 
   if (form.id === 'pwForm') {
+    const pwErr = validatePassword(form.password.value, { min: 8, label: 'New password' });
+    if (pwErr) {
+      toast(pwErr);
+      return;
+    }
     if (form.password.value !== form.confirm.value) {
       toast('Passwords don’t match');
       return;
     }
+    const unbusy = setBusy(form, 'Updating…');
     const res = await updatePassword(form.password.value);
+    unbusy();
     toast(res.ok ? 'Password updated ✓' : res.error || 'Could not update password');
     if (res.ok) form.reset();
     return;
@@ -2915,6 +3164,17 @@ app.addEventListener('input', (e) => {
     crm.q = e.target.value;
     render._refocusSearch = true;
     render();
+  } else if (hit.action === 'auth-field') {
+    const name = e.target.name;
+    if (name === 'email') authForm.email = e.target.value;
+    if (name === 'name') authForm.name = e.target.value;
+    // Clear field-level error as they type
+    if (authFieldErrors[name]) {
+      delete authFieldErrors[name];
+      const errEl = document.getElementById(`err-${name}`);
+      if (errEl) errEl.remove();
+      e.target.removeAttribute('aria-invalid');
+    }
   } else if (hit.action === 'disc-input') {
     // Capture the draft (so a live re-render can't lose it) and auto-grow the box.
     disc.draft = e.target.value;
@@ -3125,25 +3385,60 @@ store.onError(() => {
   showConnBanner('Couldn’t reach the server — some changes may not have saved. Check your connection.');
 });
 
-/* catch the password-reset link — Supabase fires PASSWORD_RECOVERY after load */
-onAuthEvent((event) => {
+/* Auth lifecycle — recovery link, multi-tab sign-out, role refresh */
+onAuthEvent(async (event, session) => {
   if (event === 'PASSWORD_RECOVERY') {
     recoveryMode = true;
     authError = '';
     authInfo = '';
+    authFieldErrors = {};
+    portalLoadError = null;
     render();
+    return;
+  }
+  if (event === 'SIGNED_OUT') {
+    // Another tab signed out, or session revoked
+    store.stopRealtime();
+    store.stopDiscussionRealtime();
+    clearCachedUser();
+    recoveryMode = false;
+    portalLoadError = null;
+    route = { name: null, params: {} };
+    authScreen = 'login';
+    if (!document.hidden) {
+      authInfo = 'You have been signed out.';
+    }
+    render();
+    return;
+  }
+  if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+    // Keep role/name in sync without bouncing the whole app
+    if (session?.user && currentUser()) {
+      try {
+        await refreshSessionUser();
+      } catch {
+        /* ignore soft refresh failures */
+      }
+    }
   }
 });
 
 /* boot: restore any existing session, load the data it can see, then render */
 (async () => {
-  app.innerHTML = `<div class="portal-loading"><span class="spinner" aria-hidden="true"></span>Loading your portal…</div>`;
+  app.innerHTML = loadingShell();
   try {
     const user = await initAuth();
     if (user && !recoveryMode) {
-      await store.hydrate(user);
-      store.startRealtime(user, liveRerender);
-      store.startDiscussionRealtime(user, liveRerender);
+      try {
+        await store.hydrate(user);
+        store.startRealtime(user, liveRerender);
+        store.startDiscussionRealtime(user, liveRerender);
+      } catch (err) {
+        console.error('[portal] startup hydrate error:', err);
+        portalLoadError =
+          mapAuthError(err?.message || err, 'login') ||
+          'Couldn’t load your data. Check your connection and try again.';
+      }
     }
   } catch (err) {
     console.error('[portal] startup error:', err);
