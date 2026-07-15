@@ -142,10 +142,19 @@ drop policy if exists "submissions student update" on public.submissions;
 drop policy if exists "submissions admin grade" on public.submissions;
 create policy "submissions read" on public.submissions for select
   using (profile_id = auth.uid() or public.current_user_role() = 'admin');
+-- Students insert own work; auto quizzes may upsert as graded.
 create policy "submissions student write" on public.submissions for insert
-  with check (profile_id = auth.uid());
+  with check (
+    profile_id = auth.uid()
+    and (status = 'submitted' or (status = 'graded' and type = 'auto'))
+  );
+-- Students may update only while awaiting review (cannot wipe a graded row).
 create policy "submissions student update" on public.submissions for update
-  using (profile_id = auth.uid());
+  using (profile_id = auth.uid() and status = 'submitted')
+  with check (
+    profile_id = auth.uid()
+    and (status = 'submitted' or (status = 'graded' and type = 'auto'))
+  );
 create policy "submissions admin grade" on public.submissions for update
   using (public.current_user_role() = 'admin')
   with check (public.current_user_role() = 'admin');

@@ -82,6 +82,19 @@ In the portal, use **↻ Refresh submissions** on the Grading page anytime.
 
 ---
 
+## Discussion replies + hardened submissions (recommended)
+
+Run these once on existing projects (new installs that use the latest
+`schema.sql` / `discussion.sql` already include most of this):
+
+1. [`supabase/discussion-replies.sql`](supabase/discussion-replies.sql) — adds `parent_id` so students can **Reply** on the class discussion board.
+2. [`supabase/harden-submissions.sql`](supabase/harden-submissions.sql) — students can no longer overwrite a **graded** row (prevents “test disappeared / grade wiped” edge cases).
+
+Also ensure class discussion base tables exist via
+[`supabase/discussion.sql`](supabase/discussion.sql) if you have not already.
+
+---
+
 ## Add-ons (built — enable with one more SQL file)
 
 These three features are already in the code. To turn them on, run

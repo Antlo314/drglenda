@@ -177,9 +177,11 @@ const mapProfile = (r) => ({
 // A class-discussion post. `author_name`/`author_role` are denormalized on the
 // row (set server-side) so every classmate can see who wrote it — students can't
 // read each other's `profiles` rows under RLS.
+// `parent_id` is null for top-level posts; set for replies (threaded board).
 const mapPost = (r) => ({
   id: r.id, authorId: r.author_id, authorName: r.author_name || 'Student',
   authorRole: r.author_role || 'student', body: r.body || '', createdAt: r.created_at,
+  parentId: r.parent_id || null,
 });
 const mapSubmission = (r) => ({
   type: r.type, status: r.status, score: r.score, total: r.total,
@@ -554,66 +556,119 @@ export function setSessionComplete(studentId, sessionId, complete) {
   );
 }
 
-export async function submitAutoQuiz(studentId, quizId, answers, todayISO) {
+/** Restore a previous submission snapshot (or remove the key) after a failed write. */
+function restoreSubmission(studentId, quizId, previous) {
+  const next = structuredClone(state);
+  next.progress[studentId] ??= { completed: [], submissions: {} };
+  if (previous === undefined) {
+    delete next.progress[studentId].submissions[quizId];
+  } else {
+    next.progress[studentId].submissions[quizId] = previous;
+  }
+  set(next);
+}
+
+/** Block re-submit when work is already graded (server RLS should also enforce this). */
+function guardNotGraded(studentId, quizId) {
+  const existing = state.progress[studentId]?.submissions?.[quizId];
+  if (existing?.status === 'graded') {
+    return { ok: false, error: 'This test is already graded and cannot be resubmitted.' };
+  }
+  return null;
+}
+
+export async function submitAutoQuiz(studentId, quizId, answers, submittedAt) {
   const quiz = getQuizById(quizId);
   if (!quiz || quiz.type !== 'auto') return { ok: false, error: 'Quiz not found.', score: 0, correct: 0, total: 0 };
+  const blocked = guardNotGraded(studentId, quizId);
+  if (blocked) return { ...blocked, score: 0, correct: 0, total: quiz.questions?.length || 0 };
+  const at = submittedAt || new Date().toISOString();
   let correct = 0;
   quiz.questions.forEach((q) => {
     if (answers[q.id] === q.correctIndex) correct += 1;
   });
   const total = quiz.questions.length;
   const score = Math.round((correct / total) * 100);
+  const previous = state.progress[studentId]?.submissions?.[quizId]
+    ? structuredClone(state.progress[studentId].submissions[quizId])
+    : undefined;
   const next = structuredClone(state);
   next.progress[studentId] ??= { completed: [], submissions: {} };
   const gradeDerivation = `Auto-scored: ${correct} of ${total} questions correct → ${score}%. Formula: (correct ÷ total) × 100, rounded.`;
   next.progress[studentId].submissions[quizId] = {
-    type: 'auto', score, total, correct, status: 'graded', submittedAt: todayISO, answers,
-    scoringMethod: 'auto', gradeDerivation, gradedAt: todayISO,
+    type: 'auto', score, total, correct, status: 'graded', submittedAt: at, answers,
+    scoringMethod: 'auto', gradeDerivation, gradedAt: at,
   };
   set(next);
   const saved = await writeThrough(() =>
     supabase.from('submissions').upsert(
       {
         profile_id: studentId, quiz_id: quizId, type: 'auto', status: 'graded',
-        score, total, correct, answers, submitted_at: todayISO, graded_at: todayISO,
+        score, total, correct, answers, submitted_at: at, graded_at: at,
         scoring_method: 'auto', grade_derivation: gradeDerivation,
       },
       { onConflict: 'profile_id,quiz_id' }
     )
   );
-  return { ok: saved.ok, error: saved.error, score, correct, total };
+  if (!saved.ok) {
+    restoreSubmission(studentId, quizId, previous);
+    return { ok: false, error: saved.error, score, correct, total };
+  }
+  return { ok: true, score, correct, total, submittedAt: at };
 }
 
-export async function submitManual(studentId, quizId, answer, todayISO) {
+export async function submitManual(studentId, quizId, answer, submittedAt) {
+  const blocked = guardNotGraded(studentId, quizId);
+  if (blocked) return blocked;
+  const at = submittedAt || new Date().toISOString();
+  const previous = state.progress[studentId]?.submissions?.[quizId]
+    ? structuredClone(state.progress[studentId].submissions[quizId])
+    : undefined;
   const next = structuredClone(state);
   next.progress[studentId] ??= { completed: [], submissions: {} };
   next.progress[studentId].submissions[quizId] = {
-    type: 'manual', status: 'submitted', submittedAt: todayISO, answer,
+    type: 'manual', status: 'submitted', submittedAt: at, answer,
   };
   set(next);
-  return writeThrough(() =>
+  const saved = await writeThrough(() =>
     supabase.from('submissions').upsert(
-      { profile_id: studentId, quiz_id: quizId, type: 'manual', status: 'submitted', answer, submitted_at: todayISO },
+      { profile_id: studentId, quiz_id: quizId, type: 'manual', status: 'submitted', answer, submitted_at: at },
       { onConflict: 'profile_id,quiz_id' }
     )
   );
+  if (!saved.ok) {
+    restoreSubmission(studentId, quizId, previous);
+    return { ok: false, error: saved.error };
+  }
+  return { ok: true, submittedAt: at };
 }
 
 /** Written test: student submits a free-response answer for each question.
  *  Answers are keyed by question id; the test then enters the grading queue. */
-export async function submitWritten(studentId, quizId, answers, todayISO) {
+export async function submitWritten(studentId, quizId, answers, submittedAt) {
+  const blocked = guardNotGraded(studentId, quizId);
+  if (blocked) return blocked;
+  const at = submittedAt || new Date().toISOString();
+  const previous = state.progress[studentId]?.submissions?.[quizId]
+    ? structuredClone(state.progress[studentId].submissions[quizId])
+    : undefined;
   const next = structuredClone(state);
   next.progress[studentId] ??= { completed: [], submissions: {} };
   next.progress[studentId].submissions[quizId] = {
-    type: 'manual', status: 'submitted', submittedAt: todayISO, answers,
+    type: 'manual', status: 'submitted', submittedAt: at, answers,
   };
   set(next);
-  return writeThrough(() =>
+  const saved = await writeThrough(() =>
     supabase.from('submissions').upsert(
-      { profile_id: studentId, quiz_id: quizId, type: 'manual', status: 'submitted', answers, submitted_at: todayISO },
+      { profile_id: studentId, quiz_id: quizId, type: 'manual', status: 'submitted', answers, submitted_at: at },
       { onConflict: 'profile_id,quiz_id' }
     )
   );
+  if (!saved.ok) {
+    restoreSubmission(studentId, quizId, previous);
+    return { ok: false, error: saved.error };
+  }
+  return { ok: true, submittedAt: at };
 }
 
 /** Admin toggles a test live/offline (the "Go live" button on Sessions). */
@@ -637,7 +692,7 @@ export function setQuizPublished(quizId, published) {
  * @param {string} [feedbackOrToday]  legacy 4-arg form: feedback string
  * @param {string} [todayISO]         legacy 5-arg form: date
  */
-export function gradeSubmission(studentId, quizId, payload, feedbackOrToday, todayISO) {
+export async function gradeSubmission(studentId, quizId, payload, feedbackOrToday, todayISO) {
   // Support both legacy gradeSubmission(id, q, score, feedback, date)
   // and modern gradeSubmission(id, q, { score, feedback, … }, date).
   let score;
@@ -661,6 +716,7 @@ export function gradeSubmission(studentId, quizId, payload, feedbackOrToday, tod
     feedback = feedbackOrToday || '';
     date = todayISO;
   }
+  date = date || new Date().toISOString();
 
   const quiz = getQuizById(quizId);
   if (!scoringMethod) {
@@ -686,6 +742,9 @@ export function gradeSubmission(studentId, quizId, payload, feedbackOrToday, tod
     }
   }
 
+  const previous = state.progress[studentId]?.submissions?.[quizId]
+    ? structuredClone(state.progress[studentId].submissions[quizId])
+    : undefined;
   const next = structuredClone(state);
   next.progress[studentId] ??= { completed: [], submissions: {} };
   const sub = next.progress[studentId].submissions[quizId] || {
@@ -714,7 +773,7 @@ export function gradeSubmission(studentId, quizId, payload, feedbackOrToday, tod
   };
   // Prefer UPDATE (admin RLS). If no row matches, INSERT via upsert so the
   // grade is not lost when the student submission was missing client-side.
-  push(async () => {
+  const saved = await writeThrough(async () => {
     const upd = await supabase
       .from('submissions')
       .update(gradePatch)
@@ -737,6 +796,11 @@ export function gradeSubmission(studentId, quizId, payload, feedbackOrToday, tod
       { onConflict: 'profile_id,quiz_id' }
     );
   });
+  if (!saved.ok) {
+    restoreSubmission(studentId, quizId, previous);
+    return { ok: false, error: saved.error };
+  }
+  return { ok: true, gradedAt: date };
 }
 
 /**
@@ -1262,12 +1326,20 @@ export function deleteMaterial(id) {
 /* ===========================================================================
    CLASS DISCUSSION — a shared student-to-student board (realtime in Supabase)
    ======================================================================== */
-/** Post a message to the class board. Optimistic: shows immediately, then
- *  reconciles the temp id + timestamp with the row the database returns. */
-export function addDiscussionPost(user, body) {
+/** Post a message (or reply) to the class board. Optimistic: shows immediately,
+ *  then reconciles the temp id + timestamp with the row the database returns. */
+export function addDiscussionPost(user, body, parentId = null) {
   const text = String(body || '').trim();
   if (!text || !user) return { ok: false, error: 'Write a message first.' };
-  const tempId = `d-${Date.now()}`;
+  // Only allow reply-to real posts (not nested under another reply more than 1 level).
+  let resolvedParent = parentId || null;
+  if (resolvedParent) {
+    const parent = (state.discussion || []).find((p) => p.id === resolvedParent);
+    if (!parent) resolvedParent = null;
+    // Collapse deep threads: reply-to-reply attaches to the root parent.
+    else if (parent.parentId) resolvedParent = parent.parentId;
+  }
+  const tempId = `d-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const local = {
     id: tempId,
     authorId: user.id,
@@ -1275,23 +1347,40 @@ export function addDiscussionPost(user, body) {
     authorRole: user.role || 'student',
     body: text,
     createdAt: new Date().toISOString(),
+    parentId: resolvedParent,
   };
   const next = structuredClone(state);
   (next.discussion ??= []).push(local);
   set(next);
 
-  if (!USE_SUPABASE || !supabase) return { ok: true };
+  if (!USE_SUPABASE || !supabase) return { ok: true, id: tempId };
   // The DB trigger (see discussion.sql) authoritatively stamps author identity;
   // we still send it for the optimistic row and reconcile from what comes back.
+  const insertRow = {
+    author_id: user.id,
+    author_name: local.authorName,
+    author_role: local.authorRole,
+    body: text,
+  };
+  if (resolvedParent && !String(resolvedParent).startsWith('d-')) {
+    insertRow.parent_id = resolvedParent;
+  }
   Promise.resolve(
     supabase
       .from('discussion_posts')
-      .insert({ author_id: user.id, author_name: local.authorName, author_role: local.authorRole, body: text })
+      .insert(insertRow)
       .select()
       .single()
   )
     .then(({ data, error }) => {
-      if (error) return reportError(error);
+      if (error) {
+        // Roll back optimistic post so the UI never lies about a failed send.
+        const cur = structuredClone(state);
+        cur.discussion = (cur.discussion || []).filter((p) => p.id !== tempId);
+        set(cur);
+        reportError(error);
+        return;
+      }
       if (!data) return;
       const cur = structuredClone(state);
       const row = (cur.discussion || []).find((p) => p.id === tempId);
@@ -1300,17 +1389,26 @@ export function addDiscussionPost(user, body) {
         row.createdAt = data.created_at || row.createdAt;
         row.authorName = data.author_name || row.authorName;
         row.authorRole = data.author_role || row.authorRole;
+        row.parentId = data.parent_id || row.parentId || null;
       }
       set(cur);
     })
-    .catch(reportError);
-  return { ok: true };
+    .catch((e) => {
+      const cur = structuredClone(state);
+      cur.discussion = (cur.discussion || []).filter((p) => p.id !== tempId);
+      set(cur);
+      reportError(e);
+    });
+  return { ok: true, id: tempId };
 }
 
-/** Remove a post. RLS lets a student delete only their own; admins delete any. */
+/** Remove a post (and any local replies). RLS: student own / admin any. */
 export function deleteDiscussionPost(id) {
   const next = structuredClone(state);
-  next.discussion = (next.discussion || []).filter((p) => p.id !== id);
+  // Drop the post and any replies that reference it (DB cascades; local mirrors).
+  next.discussion = (next.discussion || []).filter(
+    (p) => p.id !== id && p.parentId !== id
+  );
   set(next);
   push(() => supabase.from('discussion_posts').delete().eq('id', id));
 }
@@ -1328,8 +1426,13 @@ export function startDiscussionRealtime(user, onChange) {
         .from('discussion_posts')
         .select('*')
         .order('created_at', { ascending: true });
+      const fromServer = (data || []).map(mapPost);
+      // Keep optimistic temp posts (ids starting with d-) until insert resolves.
+      const pending = (state.discussion || []).filter(
+        (p) => typeof p.id === 'string' && p.id.startsWith('d-')
+      );
       const next = structuredClone(state);
-      next.discussion = (data || []).map(mapPost);
+      next.discussion = [...fromServer, ...pending];
       set(next);
       onChange?.();
     })

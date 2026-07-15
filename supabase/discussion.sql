@@ -22,6 +22,8 @@ create table if not exists public.discussion_posts (
   author_name text not null default 'Student',
   author_role text not null default 'student',
   body        text not null check (char_length(body) between 1 and 4000),
+  -- Null = top-level post; set for replies (see discussion-replies.sql).
+  parent_id   uuid references public.discussion_posts(id) on delete cascade,
   created_at  timestamptz not null default now()
 );
 alter table public.discussion_posts enable row level security;
@@ -56,6 +58,7 @@ create policy "discussion delete own" on public.discussion_posts for delete
   using (author_id = auth.uid() or public.current_user_role() = 'admin');
 
 create index if not exists idx_discussion_created on public.discussion_posts(created_at);
+create index if not exists idx_discussion_parent on public.discussion_posts(parent_id, created_at);
 
 -- Live updates so new posts appear instantly for the whole class.
 do $$

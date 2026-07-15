@@ -38,6 +38,7 @@ const esc = (v) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
   );
 
+/** Calendar date YYYY-MM-DD (exports, CRM date fields). */
 const todayISO = () => {
   const d = new Date();
   const yr = d.getFullYear();
@@ -45,6 +46,30 @@ const todayISO = () => {
   const dy = String(d.getDate()).padStart(2, '0');
   return `${yr}-${mo}-${dy}`;
 };
+
+/** Full ISO timestamp for submissions / grades (ordering + “just now”). */
+const nowISO = () => new Date().toISOString();
+
+/* ---- quiz draft autosave (local only; not a server submit) --------------- */
+const draftKey = (userId, quizId) => `umof_draft_${userId}_${quizId}`;
+function loadQuizDraft(userId, quizId) {
+  try {
+    const raw = localStorage.getItem(draftKey(userId, quizId));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+function saveQuizDraft(userId, quizId, payload) {
+  try {
+    localStorage.setItem(draftKey(userId, quizId), JSON.stringify({ ...payload, savedAt: Date.now() }));
+  } catch { /* quota */ }
+}
+function clearQuizDraft(userId, quizId) {
+  try {
+    localStorage.removeItem(draftKey(userId, quizId));
+  } catch { /* ignore */ }
+}
 
 const fmtDate = (iso) => {
   if (!iso) return '—';
@@ -74,7 +99,7 @@ const avatar = (user, size = 38) =>
 
 const STATUS_OPTIONS = ['new', 'contacted', 'qualified', 'enrolled', 'lost'];
 
-function toast(msg) {
+function toast(msg, ms = 2800) {
   let t = document.getElementById('toast');
   if (!t) {
     t = document.createElement('div');
@@ -85,16 +110,32 @@ function toast(msg) {
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => t.classList.remove('show'), 2200);
+  toast._t = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+/** Persistent non-blocking banner for connection / save failures. */
+function showConnBanner(msg) {
+  let b = document.getElementById('connBanner');
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'connBanner';
+    b.className = 'conn-banner';
+    b.setAttribute('role', 'status');
+    document.body.appendChild(b);
+  }
+  b.innerHTML = `<span>${esc(msg)}</span><button type="button" class="conn-banner-x" data-action="dismiss-banner" aria-label="Dismiss">×</button>`;
+  b.classList.add('show');
+}
+function hideConnBanner() {
+  document.getElementById('connBanner')?.classList.remove('show');
 }
 
 /* ---- app state ------------------------------------------------------------ */
 let route = { name: null, params: {} };
 let crm = { view: 'leads', q: '', status: 'all', adding: false, editingId: null, notesOpen: new Set() };
-// Discussion composer draft, kept across live re-renders so an incoming message
-// never wipes what a student is typing. `focusAfterRender` re-focuses the box
-// right after they post.
-let disc = { draft: '', focusAfterRender: false };
+// Discussion composer draft + reply target, kept across live re-renders.
+// `replyToId` is the root post being replied to; `focusAfterRender` re-focuses after post.
+let disc = { draft: '', replyToId: null, focusAfterRender: false };
 
 // logged-out auth screens
 let authScreen = 'login'; // 'login' | 'signup' | 'forgot'
@@ -104,8 +145,23 @@ let recoveryMode = false; // user arrived via a password-reset link
 
 function go(name, params = {}) {
   route = { name, params };
+  closeSideNav();
   render();
   document.querySelector('.portal-main')?.scrollTo(0, 0);
+}
+
+function openSideNav() {
+  document.querySelector('.portal-shell')?.classList.add('side-open');
+  document.body.classList.add('side-nav-open');
+}
+function closeSideNav() {
+  document.querySelector('.portal-shell')?.classList.remove('side-open');
+  document.body.classList.remove('side-nav-open');
+}
+function toggleSideNav() {
+  const shell = document.querySelector('.portal-shell');
+  if (shell?.classList.contains('side-open')) closeSideNav();
+  else openSideNav();
 }
 
 function goAuth(screen) {
@@ -128,13 +184,17 @@ async function enterApp(user) {
   go(user.role === 'admin' ? 'admin-home' : 'student-home');
 }
 
-/** Disable a form's submit button and show a working label. */
+/** Disable a form's submit button and show a working label. Returns restore fn. */
 function setBusy(form, label) {
   const btn = form.querySelector('button[type="submit"]');
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = label;
-  }
+  if (!btn) return () => {};
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = label;
+  return () => {
+    btn.disabled = false;
+    btn.textContent = prev;
+  };
 }
 
 /* ===========================================================================
@@ -166,10 +226,13 @@ function viewLogin() {
     <p class="auth-sub">Students access class sessions, notes &amp; tests. Instructors manage progress, grading &amp; the CRM.</p>
     <form id="loginForm" class="auth-form" novalidate>
       <label class="field"><span>Email</span>
-        <input type="email" name="email" autocomplete="username" placeholder="you@example.com" required />
+        <input type="email" name="email" autocomplete="username" inputmode="email" placeholder="you@example.com" required />
       </label>
       <label class="field"><span>Password</span>
-        <input type="password" name="password" autocomplete="current-password" placeholder="••••••••" required />
+        <div class="pw-wrap">
+          <input type="password" name="password" autocomplete="current-password" placeholder="••••••••" required />
+          <button type="button" class="pw-toggle" data-action="toggle-pw" aria-label="Show password">Show</button>
+        </div>
       </label>
       ${authMsgs()}
       <button type="submit" class="btn btn-primary btn-full">Sign in</button>
@@ -208,7 +271,10 @@ function viewSignup() {
         <input type="email" name="email" autocomplete="email" placeholder="you@example.com" required />
       </label>
       <label class="field"><span>Password</span>
-        <input type="password" name="password" autocomplete="new-password" placeholder="At least 8 characters" minlength="8" required />
+        <div class="pw-wrap">
+          <input type="password" name="password" autocomplete="new-password" placeholder="At least 8 characters" minlength="8" required />
+          <button type="button" class="pw-toggle" data-action="toggle-pw" aria-label="Show password">Show</button>
+        </div>
       </label>
       ${authMsgs()}
       <button type="submit" class="btn btn-primary btn-full">Create account</button>
@@ -309,11 +375,15 @@ function shell(user, navItems, content) {
 
   return `
   <div class="portal-shell">
-    <aside class="portal-side">
-      <a class="side-brand" href="/">
-        <img src="/assets/umof-logo.png" alt="UMOF" width="36" height="36" />
-        <span><strong>UMOF</strong><small>Learning Portal</small></span>
-      </a>
+    <div class="side-scrim" data-action="close-side" aria-hidden="true"></div>
+    <aside class="portal-side" id="portalSide" aria-label="Main navigation">
+      <div class="side-head">
+        <a class="side-brand" href="/">
+          <img src="/assets/umof-logo.png" alt="UMOF" width="36" height="36" />
+          <span><strong>UMOF</strong><small>Learning Portal</small></span>
+        </a>
+        <button type="button" class="side-close" data-action="close-side" aria-label="Close menu">×</button>
+      </div>
       <nav class="side-nav">${items}</nav>
       <div class="side-foot">
         <a class="side-link" href="/">← Main website</a>
@@ -322,12 +392,12 @@ function shell(user, navItems, content) {
     </aside>
     <div class="portal-body">
       <header class="portal-top">
-        <button class="side-toggle" data-action="toggle-side" aria-label="Menu">☰</button>
+        <button class="side-toggle" data-action="toggle-side" aria-label="Open menu" aria-controls="portalSide">☰</button>
         <div class="top-spacer"></div>
         <div class="top-user">
           <div class="tu-text"><strong>${esc(displayNameWithCfwf(user.name))}</strong><small>${user.role === 'admin' ? esc(user.title || 'Instructor') : esc(user.cohort || 'Student')}</small></div>
           ${avatar(user, 40)}
-          <button class="btn btn-ghost btn-sm" data-action="logout">Log out</button>
+          <button class="btn btn-ghost btn-sm top-logout" data-action="logout">Log out</button>
         </div>
       </header>
       <main class="portal-main">${content}</main>
@@ -663,20 +733,25 @@ function fmtWhen(iso) {
   return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-/** One message in the class feed. */
-function discussionMessage(p, user) {
+/** One message in the class feed (root or reply). */
+function discussionMessage(p, user, { isReply = false } = {}) {
   const mine = p.authorId === user.id;
   const isInstructor = p.authorRole === 'admin';
   const canDelete = mine || user.role === 'admin';
   const author = { id: p.authorId || 'anon', name: p.authorName || 'Student' };
-  return `<div class="disc-msg${mine ? ' is-mine' : ''}${isInstructor ? ' is-instructor' : ''}">
-    ${avatar(author, 40)}
+  // Reply always targets the thread root (one-level threads).
+  const replyTargetId = isReply ? (p.parentId || p.id) : p.id;
+  return `<div class="disc-msg${mine ? ' is-mine' : ''}${isInstructor ? ' is-instructor' : ''}${isReply ? ' is-reply' : ''}" data-post-id="${esc(p.id)}">
+    ${avatar(author, isReply ? 32 : 40)}
     <div class="disc-bubble">
       <div class="disc-meta">
         <strong>${esc(p.authorName || 'Student')}${mine ? ' (you)' : ''}</strong>
         ${isInstructor ? `<span class="disc-tag">Instructor</span>` : ''}
         <span class="disc-time">${esc(fmtWhen(p.createdAt))}</span>
-        ${canDelete ? `<button class="disc-del" data-action="delete-post" data-id="${esc(p.id)}" title="Delete message" aria-label="Delete message">🗑</button>` : ''}
+        <span class="disc-actions">
+          <button type="button" class="disc-reply-btn" data-action="reply-post" data-id="${esc(replyTargetId)}" data-name="${esc(p.authorName || 'Student')}" title="Reply" aria-label="Reply to ${esc(p.authorName || 'Student')}">Reply</button>
+          ${canDelete ? `<button type="button" class="disc-del" data-action="delete-post" data-id="${esc(p.id)}" title="Delete message" aria-label="Delete message">🗑</button>` : ''}
+        </span>
       </div>
       <p class="disc-body">${esc(p.body).replace(/\n/g, '<br />')}</p>
     </div>
@@ -690,19 +765,58 @@ function discussionView(user) {
   const promptWeek = weeks.find((w) => !w.pending && w.discussion) || weeks.find((w) => w.discussion);
   const prompt = promptWeek?.discussion || '';
 
-  const feed = posts.length
-    ? posts.map((p) => discussionMessage(p, user)).join('')
-    : `<div class="disc-empty">
+  const roots = posts.filter((p) => !p.parentId);
+  const byParent = new Map();
+  posts.forEach((p) => {
+    if (!p.parentId) return;
+    if (!byParent.has(p.parentId)) byParent.set(p.parentId, []);
+    byParent.get(p.parentId).push(p);
+  });
+
+  let feed;
+  if (!posts.length) {
+    feed = `<div class="disc-empty">
         <div class="empty-ico">💬</div>
         <h3>Start the conversation</h3>
         <p class="muted">Be the first to post — share your Discussion Post answer or ask the class a question.</p>
       </div>`;
+  } else {
+    feed = roots
+      .map((root) => {
+        const replies = (byParent.get(root.id) || []).sort(
+          (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+        );
+        const replyBlock = replies.length
+          ? `<div class="disc-replies" role="group" aria-label="Replies">${replies
+              .map((r) => discussionMessage(r, user, { isReply: true }))
+              .join('')}</div>`
+          : '';
+        return `<div class="disc-thread">${discussionMessage(root, user)}${replyBlock}</div>`;
+      })
+      .join('');
+    // Orphan replies (parent deleted/missing) — show as top-level so nothing vanishes.
+    const rootIds = new Set(roots.map((r) => r.id));
+    const orphans = posts.filter((p) => p.parentId && !rootIds.has(p.parentId));
+    if (orphans.length) {
+      feed += orphans.map((p) => `<div class="disc-thread">${discussionMessage(p, user)}</div>`).join('');
+    }
+  }
+
+  const replyTarget = disc.replyToId
+    ? posts.find((p) => p.id === disc.replyToId) || { authorName: 'classmate', id: disc.replyToId }
+    : null;
+  const replyBar = replyTarget
+    ? `<div class="disc-reply-bar">
+        <span>Replying to <strong>${esc(replyTarget.authorName || 'classmate')}</strong></span>
+        <button type="button" class="link-btn" data-action="cancel-reply">Cancel</button>
+      </div>`
+    : '';
 
   return `
   <div class="page-head"><div>
     <span class="eyebrow">Class Community</span>
     <h1>Class Discussion</h1>
-    <p class="muted">Post your discussion answers, ask questions, and connect with your classmates.</p>
+    <p class="muted">Post your discussion answers, ask questions, and reply to classmates.</p>
   </div></div>
 
   ${prompt ? `<div class="disc-prompt">
@@ -711,13 +825,14 @@ function discussionView(user) {
   </div>` : ''}
 
   <section class="panel disc-panel no-pad">
-    <div class="disc-feed" id="discFeed">${feed}</div>
+    <div class="disc-feed" id="discFeed" aria-live="polite">${feed}</div>
+    ${replyBar}
     <form id="discForm" class="disc-composer">
       ${avatar(user, 38)}
       <textarea id="discInput" name="body" rows="1" maxlength="2000"
-        placeholder="Write a message to the class…  (Enter to post, Shift+Enter for a new line)"
-        data-action="disc-input"></textarea>
-      <button type="submit" class="btn btn-primary btn-sm">Post</button>
+        placeholder="${replyTarget ? `Reply to ${esc(replyTarget.authorName || 'classmate')}…` : 'Write a message to the class…  (Enter to post, Shift+Enter for a new line)'}"
+        data-action="disc-input" aria-label="${replyTarget ? 'Reply message' : 'Class message'}"></textarea>
+      <button type="submit" class="btn btn-primary btn-sm">${replyTarget ? 'Reply' : 'Post'}</button>
     </form>
   </section>
   <p class="muted disc-foot">Visible to everyone in your cohort${USE_SUPABASE ? ' · updates live' : ''}. Please keep it respectful and supportive. 💛</p>`;
@@ -962,17 +1077,20 @@ function quizView(user) {
     }
     if (sub && sub.status === 'submitted') {
       return `${head}
-      <section class="panel"><div class="pending-banner">⏳ Submitted ${fmtDate(sub.submittedAt)} — awaiting instructor review.</div></section>
+      <section class="panel"><div class="pending-banner">⏳ Submitted ${fmtDateTime(sub.submittedAt) || fmtDate(sub.submittedAt)} — saved for your instructor.</div></section>
       ${qaBlock(sub.answers)}`;
     }
+    const draftW = loadQuizDraft(user.id, q.id);
+    const draftAnswers = draftW?.answers || {};
     return `${head}
-    <form id="writtenForm" data-quiz="${q.id}" class="panel quiz-form">
+    <form id="writtenForm" data-quiz="${q.id}" class="panel quiz-form" data-draft="1">
       <p class="muted">Answer each question in your own words. Your instructor will review and grade your responses.</p>
+      ${draftW ? `<p class="draft-hint" id="draftHint">Draft saved on this device · not submitted yet</p>` : `<p class="draft-hint muted" id="draftHint" hidden></p>`}
       ${q.questions
         .map(
           (qq, i) => `<fieldset class="quiz-q">
         <legend>${i + 1}. ${esc(qq.prompt)}</legend>
-        <textarea name="${qq.id}" rows="4" placeholder="Write your answer…" required></textarea>
+        <textarea name="${qq.id}" rows="4" placeholder="Write your answer…" required data-action="quiz-draft">${esc(draftAnswers[qq.id] || '')}</textarea>
       </fieldset>`
         )
         .join('')}
@@ -1044,15 +1162,17 @@ function quizView(user) {
   if (sub && sub.status === 'submitted') {
     return `${head}
     <section class="panel">
-      <div class="pending-banner">⏳ Submitted ${fmtDate(sub.submittedAt)} — awaiting instructor review.</div>
+      <div class="pending-banner">⏳ Submitted ${fmtDateTime(sub.submittedAt) || fmtDate(sub.submittedAt)} — saved for your instructor.</div>
       <div class="panel-head"><h2>Your submission</h2></div><p class="answer-box">${esc(sub.answer)}</p>
     </section>`;
   }
+  const draftM = loadQuizDraft(user.id, q.id);
   return `${head}
-  <form id="manualForm" data-quiz="${q.id}" class="panel">
+  <form id="manualForm" data-quiz="${q.id}" class="panel" data-draft="1">
     <p class="muted">${esc(q.prompt)}</p>
+    ${draftM ? `<p class="draft-hint" id="draftHint">Draft saved on this device · not submitted yet</p>` : `<p class="draft-hint muted" id="draftHint" hidden></p>`}
     <label class="field"><span>Your response</span>
-      <textarea name="answer" rows="9" placeholder="Write your response here…" required></textarea>
+      <textarea name="answer" rows="9" placeholder="Write your response here…" required data-action="quiz-draft">${esc(draftM?.answer || '')}</textarea>
     </label>
     <button type="submit" class="btn btn-primary">Submit for review</button>
   </form>`;
@@ -1067,36 +1187,59 @@ function studentTests(user) {
     <section class="panel"><div class="empty"><div class="empty-ico">📝</div><h3>No tests open yet</h3>
       <p class="muted">Your instructor opens each test when the class is ready. Check back soon.</p></div></section>`;
   }
+  const rows = quizzes.map((q) => {
+    const sub = prog.submissions?.[q.id];
+    const status = !sub
+      ? '<span class="pill pill-todo">Open</span>'
+      : sub.status === 'graded'
+        ? '<span class="pill pill-done">Graded</span>'
+        : '<span class="pill pill-pending">Submitted</span>';
+    const score =
+      sub?.status === 'graded' && sub.score != null
+        ? q.type === 'auto'
+          ? `${sub.score}%`
+          : `${sub.score}/${q.maxScore || 100}`
+        : '—';
+    const type = q.type === 'auto' ? 'Quiz' : isWritten(q) ? 'Test' : 'Assignment';
+    const cta = !sub ? 'Start' : sub.status === 'graded' ? 'View' : 'View';
+    return { q, sub, status, score, type, cta };
+  });
+
   return `
   <div class="page-head"><h1>My Tests</h1><p class="muted">Your quizzes and assignments across the program.</p></div>
-  <section class="panel">
+  <section class="panel mobile-cards-only">
+    <div class="mobile-card-list">
+      ${rows
+        .map(
+          ({ q, status, score, type, cta }) => `<article class="mobile-card">
+        <div class="mc-top"><strong>${esc(q.title)}</strong>${status}</div>
+        <div class="mc-meta"><span>${esc(type)}</span><span>Due ${fmtDate(q.due)}</span><span>Score ${score}</span></div>
+        <button class="btn btn-primary btn-sm" data-action="go" data-route="quiz" data-id="${q.id}">${cta} →</button>
+      </article>`
+        )
+        .join('')}
+    </div>
+  </section>
+  <section class="panel no-pad desktop-table-only">
+    <div class="table-scroll">
     <table class="data-table">
       <thead><tr><th>Test</th><th>Type</th><th>Due</th><th>Status</th><th>Score</th><th></th></tr></thead>
       <tbody>
-        ${quizzes
-          .map((q) => {
-            const sub = prog.submissions?.[q.id];
-            const status = !sub
-              ? `<span class="pill pill-todo">Not started</span>`
-              : sub.status === 'graded'
-              ? `<span class="pill pill-done">Graded</span>`
-              : `<span class="pill pill-pending">Pending review</span>`;
-            const score = sub && sub.status === 'graded' ? `${sub.score}${q.type === 'manual' ? '/100' : '%'}` : '—';
-            const type = q.type === 'auto' ? 'Quiz' : isWritten(q) ? 'Test' : 'Assignment';
-            const due = q.due ? fmtDate(q.due) : '—';
-            const cta = !sub ? 'Start' : 'View';
-            return `<tr>
+        ${rows
+          .map(
+            ({ q, status, score, type, cta }) => `<tr>
               <td><strong>${esc(q.title)}</strong></td>
-              <td>${type}</td>
-              <td>${due}</td>
+              <td>${esc(type)}</td>
+              <td>${fmtDate(q.due)}</td>
               <td>${status}</td>
               <td>${score}</td>
               <td><button class="btn btn-ghost btn-sm" data-action="go" data-route="quiz" data-id="${q.id}">${cta} →</button></td>
-            </tr>`;
-          })
+            </tr>`
+          )
           .join('')}
       </tbody>
     </table>
+    </div>
   </section>`;
 }
 
@@ -1195,7 +1338,8 @@ function adminStudents() {
       <button class="btn btn-outline btn-sm" data-action="export-students-pdf">⬇ PDF</button>
     </div>
   </div>
-  <section class="panel">
+  <section class="panel no-pad">
+    <div class="table-scroll">
     <table class="data-table">
       <thead><tr><th>Student</th><th>Plan</th><th>Progress</th><th>Avg score</th><th>Pending</th><th></th></tr></thead>
       <tbody>
@@ -1214,6 +1358,7 @@ function adminStudents() {
           .join('')}
       </tbody>
     </table>
+    </div>
   </section>`;
 }
 
@@ -1343,7 +1488,7 @@ function adminGrading() {
       <span class="muted">Edit score, feedback, or Grading Breakdown anytime</span></div>
     ${
       graded.length
-        ? `<table class="data-table compact">
+        ? `<div class="table-scroll"><table class="data-table compact">
         <thead><tr><th>Student</th><th>Test</th><th>Score</th><th>Graded</th><th>Edit</th></tr></thead>
         <tbody>
           ${graded
@@ -1359,7 +1504,7 @@ function adminGrading() {
             })
             .join('')}
         </tbody>
-      </table>`
+      </table></div>`
         : `<p class="muted">No graded submissions yet. Scores appear here after you grade a test — use Edit anytime to update them.</p>`
     }
   </section>`;
@@ -2157,9 +2302,35 @@ app.addEventListener('click', async (e) => {
       const mine = post.authorId === user.id;
       if (confirm(mine ? 'Delete your message?' : `Delete ${post.authorName || 'this'}’s message?`)) {
         store.deleteDiscussionPost(d.id);
+        if (disc.replyToId === d.id) disc.replyToId = null;
         toast('Message deleted');
         render();
       }
+      break;
+    }
+    case 'reply-post': {
+      disc.replyToId = d.id || null;
+      disc.focusAfterRender = true;
+      render();
+      break;
+    }
+    case 'cancel-reply': {
+      disc.replyToId = null;
+      disc.focusAfterRender = true;
+      render();
+      break;
+    }
+    case 'dismiss-banner':
+      hideConnBanner();
+      break;
+    case 'toggle-pw': {
+      const wrap = node.closest('.pw-wrap');
+      const input = wrap?.querySelector('input');
+      if (!input) break;
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      node.textContent = show ? 'Hide' : 'Show';
+      node.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
       break;
     }
     case 'toggle-complete': {
@@ -2209,7 +2380,10 @@ app.addEventListener('click', async (e) => {
       render();
       break;
     case 'toggle-side':
-      document.querySelector('.portal-shell')?.classList.toggle('side-open');
+      toggleSideNav();
+      break;
+    case 'close-side':
+      closeSideNav();
       break;
     case 'crm-view':
       crm.view = d.view;
@@ -2391,21 +2565,23 @@ app.addEventListener('submit', async (e) => {
   e.preventDefault();
 
   if (form.id === 'loginForm') {
-    setBusy(form, 'Signing in…');
+    const unbusy = setBusy(form, 'Signing in…');
     const res = await login(form.email.value, form.password.value);
     if (res.ok) await enterApp(res.user);
     else {
       authError = res.error;
       authInfo = '';
+      unbusy();
       render();
     }
     return;
   }
 
   if (form.id === 'signupForm') {
-    setBusy(form, 'Creating…');
+    const unbusy = setBusy(form, 'Creating…');
     const res = await signUp(form.name.value, form.email.value, form.password.value);
     if (!res.ok) {
+      unbusy();
       authError = res.error;
       authInfo = '';
       render();
@@ -2555,23 +2731,36 @@ app.addEventListener('submit', async (e) => {
       const sel = form.querySelector(`input[name="${q.id}"]:checked`);
       answers[q.id] = sel ? Number(sel.value) : -1;
     });
-    setBusy(form, 'Saving…');
-    const res = await store.submitAutoQuiz(user.id, quiz.id, answers, todayISO());
+    const unbusy = setBusy(form, 'Saving…');
+    const res = await store.submitAutoQuiz(user.id, quiz.id, answers, nowISO());
     if (res.ok) {
-      toast(`Scored ${res.score}% (${res.correct}/${res.total}) · saved`);
+      clearQuizDraft(user.id, quiz.id);
+      toast(`Scored ${res.score}% (${res.correct}/${res.total}) · saved to your record ✓`);
+      hideConnBanner();
+      render();
     } else {
-      toast(`Scored ${res.score}% but save failed: ${res.error || 'try again'}`);
+      unbusy();
+      toast(`Could not save quiz: ${res.error || 'try again'}`, 4000);
+      showConnBanner('Your quiz score could not be saved. Check your connection and try again.');
     }
-    render();
     return;
   }
 
   if (form.id === 'manualForm') {
     const user = currentUser();
-    setBusy(form, 'Submitting…');
-    const res = await store.submitManual(user.id, form.dataset.quiz, form.answer.value.trim(), todayISO());
-    toast(res.ok ? 'Submitted for review ✓' : `Could not save submission: ${res.error || 'try again'}`);
-    render();
+    const quizId = form.dataset.quiz;
+    const unbusy = setBusy(form, 'Submitting…');
+    const res = await store.submitManual(user.id, quizId, form.answer.value.trim(), nowISO());
+    if (res.ok) {
+      clearQuizDraft(user.id, quizId);
+      toast('Submitted · saved for your instructor ✓');
+      hideConnBanner();
+      render();
+    } else {
+      unbusy();
+      toast(`Could not save submission: ${res.error || 'try again'}`, 4000);
+      showConnBanner('Your test was not saved. Your draft is still on this device — try submit again.');
+    }
     return;
   }
 
@@ -2582,10 +2771,18 @@ app.addEventListener('submit', async (e) => {
     quiz.questions.forEach((q) => {
       answers[q.id] = (form.elements[q.id]?.value || '').trim();
     });
-    setBusy(form, 'Submitting…');
-    const res = await store.submitWritten(user.id, quiz.id, answers, todayISO());
-    toast(res.ok ? 'Submitted for review ✓' : `Could not save submission: ${res.error || 'try again'}`);
-    render();
+    const unbusy = setBusy(form, 'Submitting…');
+    const res = await store.submitWritten(user.id, quiz.id, answers, nowISO());
+    if (res.ok) {
+      clearQuizDraft(user.id, quiz.id);
+      toast('Submitted · saved for your instructor ✓');
+      hideConnBanner();
+      render();
+    } else {
+      unbusy();
+      toast(`Could not save submission: ${res.error || 'try again'}`, 4000);
+      showConnBanner('Your test was not saved. Your draft is still on this device — try submit again.');
+    }
     return;
   }
 
@@ -2593,9 +2790,11 @@ app.addEventListener('submit', async (e) => {
     const user = currentUser();
     const body = form.body.value.trim();
     if (!body) return;
-    store.addDiscussionPost(user, body);
+    const parentId = disc.replyToId || null;
+    store.addDiscussionPost(user, body, parentId);
     disc.draft = '';
-    disc.focusAfterRender = true; // keep the composer focused so they can keep chatting
+    disc.replyToId = null;
+    disc.focusAfterRender = true;
     render();
     return;
   }
@@ -2668,7 +2867,8 @@ app.addEventListener('submit', async (e) => {
 
     const admin = currentUser();
     const wasGraded = store.getProgress(studentId).submissions?.[quizId]?.status === 'graded';
-    store.gradeSubmission(
+    const unbusy = setBusy(form, 'Saving grade…');
+    const res = await store.gradeSubmission(
       studentId,
       quizId,
       {
@@ -2679,10 +2879,17 @@ app.addEventListener('submit', async (e) => {
         scoringMethod,
         gradedBy: displayNameWithCfwf(admin?.name || admin?.email || 'Instructor'),
       },
-      todayISO()
+      nowISO()
     );
-    toast(wasGraded ? 'Grade & breakdown updated ✓' : 'Grade saved with breakdown ✓');
-    go('admin-student', { id: studentId });
+    if (res.ok) {
+      toast(wasGraded ? 'Grade & breakdown updated ✓' : 'Grade saved with breakdown ✓');
+      hideConnBanner();
+      go('admin-student', { id: studentId });
+    } else {
+      unbusy();
+      toast(`Could not save grade: ${res.error || 'try again'}`, 4000);
+      showConnBanner('Grade was not saved to the server. Try again.');
+    }
     return;
   }
 });
@@ -2713,6 +2920,26 @@ app.addEventListener('input', (e) => {
     disc.draft = e.target.value;
     e.target.style.height = 'auto';
     e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
+  } else if (hit.action === 'quiz-draft') {
+    const form = e.target.closest('form');
+    const user = currentUser();
+    if (!form || !user || !form.dataset.quiz) return;
+    const quizId = form.dataset.quiz;
+    if (form.id === 'manualForm') {
+      saveQuizDraft(user.id, quizId, { answer: form.answer?.value || '' });
+    } else if (form.id === 'writtenForm') {
+      const answers = {};
+      [...form.querySelectorAll('textarea[name]')].forEach((ta) => {
+        answers[ta.name] = ta.value;
+      });
+      saveQuizDraft(user.id, quizId, { answers });
+    }
+    const hint = form.querySelector('#draftHint');
+    if (hint) {
+      hint.hidden = false;
+      hint.textContent = 'Draft saved on this device · not submitted yet';
+      hint.classList.remove('muted');
+    }
   }
 });
 
@@ -2721,6 +2948,14 @@ app.addEventListener('keydown', (e) => {
   if (e.target.id === 'discInput' && e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     e.target.closest('form')?.requestSubmit();
+  }
+  if (e.key === 'Escape') {
+    if (document.querySelector('.portal-shell.side-open')) closeSideNav();
+    if (disc.replyToId) {
+      disc.replyToId = null;
+      disc.focusAfterRender = true;
+      render();
+    }
   }
 });
 
@@ -2885,7 +3120,10 @@ app.addEventListener('change', async (e) => {
 });
 
 /* surface failed background writes (Supabase mode) */
-store.onError(() => toast('Couldn’t reach the server — your last change may not have saved.'));
+store.onError(() => {
+  toast('Couldn’t reach the server — your last change may not have saved.', 4000);
+  showConnBanner('Couldn’t reach the server — some changes may not have saved. Check your connection.');
+});
 
 /* catch the password-reset link — Supabase fires PASSWORD_RECOVERY after load */
 onAuthEvent((event) => {
