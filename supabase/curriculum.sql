@@ -74,7 +74,34 @@ values (
         "Write a personal vision statement for yourself."
       ]
     },
-    {"week": 2,  "pending": true, "title": "Business Structure & Legal Foundation"},
+    {
+      "week": 2,
+      "pending": false,
+      "title": "Business Structure & Legal Foundation",
+      "objectives": [
+        "Choose a legal structure that fits your goals and risk profile.",
+        "Understand EIN, state registration, and basic compliance steps.",
+        "Separate personal and business identity for funding readiness.",
+        "Identify documents lenders and funders expect from a new entity."
+      ],
+      "steps": [
+        "Review sole prop vs LLC vs corporation trade-offs.",
+        "Confirm or file your entity registration in your state.",
+        "Obtain or verify your EIN with the IRS.",
+        "Open a dedicated business bank account.",
+        "Create a simple compliance checklist (licenses, permits, renewals)."
+      ],
+      "assignment": "Complete a one-page Business Structure Plan: chosen entity type, why it fits, EIN status, bank account status, and next three legal steps.",
+      "discussion": "Which business structure did you choose (or are considering), and what risk or tax factor influenced that decision most?",
+      "quiz": [
+        "What is the main liability difference between a sole proprietorship and an LLC?",
+        "Why do funders care whether personal and business finances are separated?",
+        "What is an EIN and when do you need one?",
+        "Name two documents that typically prove your business is legally established.",
+        "What is one compliance or licensing step your business may need in your state or industry?",
+        "List the three next legal/administrative steps you will complete for your entity this week."
+      ]
+    },
     {"week": 3,  "pending": true, "title": "Business Credit & Financial Identity"},
     {"week": 4,  "pending": true, "title": "Bookkeeping, Financials & Cash Flow"},
     {"week": 5,  "pending": true, "title": "Building a Fundable Business Plan"},

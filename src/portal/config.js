@@ -17,8 +17,7 @@ export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 export const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
 /**
- * Hard lock: hide ALL recorded Class Sessions from students (admins still manage
- * them). Prefer per-session / per-week Publish controls in the portal instead.
- * Keep `false` so teachers can release weeks from Sessions & Curriculum.
+ * When true, Class Sessions is greyed out for students (admins still manage
+ * recordings under Sessions). Curriculum + My Tests stay available.
  */
-export const SESSIONS_LOCKED = false;
+export const SESSIONS_LOCKED = true;

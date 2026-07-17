@@ -57,6 +57,15 @@ function loadLocal() {
         );
         dirty = true;
       }
+      // Migration: publish Week 2 syllabus content when still an empty placeholder
+      if (parsed.curriculum?.weeks?.length) {
+        const w2 = parsed.curriculum.weeks.find((w) => Number(w.week) === 2);
+        const def2 = defaultCurriculum().weeks.find((w) => Number(w.week) === 2);
+        if (w2 && def2 && (w2.pending || !w2.objectives?.length) && def2.objectives?.length) {
+          Object.assign(w2, structuredClone(def2));
+          dirty = true;
+        }
+      }
       if (dirty) {
         try { localStorage.setItem(KEY, JSON.stringify(parsed)); } catch { /* ignore */ }
       }
@@ -86,41 +95,53 @@ function set(next) {
   saveLocal();
   listeners.forEach((fn) => fn(state));
 }
-function reportError(e) {
+function isSchemaMissingError(e) {
+  const msg = typeof e === 'string' ? e : e?.message || String(e || '');
+  return /could not find the table|schema cache|does not exist|relation .* does not exist|404/i.test(
+    msg
+  );
+}
+
+function reportError(e, { quiet = false } = {}) {
+  if (quiet || isSchemaMissingError(e)) {
+    console.warn('[portal] backend write skipped/failed (non-fatal):', e?.message || e);
+    return;
+  }
   console.error('[portal] backend write failed:', e);
   errorHandler?.(e);
 }
 /** Fire-and-forget a Supabase write; surface errors via the error handler.
  *  Takes a THUNK so `supabase.from(...)` is only evaluated when connected —
  *  in demo mode `supabase` is null and must never be touched. */
-function push(queryFn) {
+function push(queryFn, { quiet = false } = {}) {
   if (!USE_SUPABASE || !supabase) return Promise.resolve({ ok: true });
   return Promise.resolve(queryFn())
     .then((res) => {
       if (res && res.error) {
-        reportError(res.error);
+        reportError(res.error, { quiet: quiet || isSchemaMissingError(res.error) });
         return { ok: false, error: res.error };
       }
       return { ok: true, data: res?.data };
     })
     .catch((e) => {
-      reportError(e);
+      reportError(e, { quiet: quiet || isSchemaMissingError(e) });
       return { ok: false, error: e };
     });
 }
 
 /** Await a Supabase write and return { ok, error? } without double-toasting when the caller handles it. */
-async function writeThrough(queryFn) {
+async function writeThrough(queryFn, { quiet = false } = {}) {
   if (!USE_SUPABASE || !supabase) return { ok: true };
   try {
     const res = await queryFn();
     if (res && res.error) {
-      reportError(res.error);
-      return { ok: false, error: res.error.message || String(res.error) };
+      const msg = res.error.message || String(res.error);
+      reportError(res.error, { quiet: quiet || isSchemaMissingError(res.error) });
+      return { ok: false, error: msg };
     }
     return { ok: true, data: res?.data };
   } catch (e) {
-    reportError(e);
+    reportError(e, { quiet: quiet || isSchemaMissingError(e) });
     return { ok: false, error: e?.message || String(e) };
   }
 }
@@ -239,18 +260,30 @@ function curriculumPayload(c) {
 }
 
 function persistCurriculum(c) {
-  push(() => supabase.from('curriculum').upsert(curriculumPayload(c), { onConflict: 'id' }));
+  // When the curriculum table is missing, keep edits in the client cache only —
+  // do not spam connection errors on every field change.
+  if (USE_SUPABASE && !curriculumBackendOk) return;
+  push(() => supabase.from('curriculum').upsert(curriculumPayload(c), { onConflict: 'id' }), {
+    quiet: true,
+  });
 }
 
 /** Await curriculum write; marks backend unavailable when the table is missing. */
 async function persistCurriculumAsync(c) {
   if (!USE_SUPABASE || !supabase) return { ok: true };
-  const res = await writeThrough(() =>
-    supabase.from('curriculum').upsert(curriculumPayload(c), { onConflict: 'id' })
+  if (!curriculumBackendOk) {
+    return {
+      ok: false,
+      error: 'Syllabus table missing — run supabase/curriculum.sql in Supabase SQL Editor',
+    };
+  }
+  const res = await writeThrough(
+    () => supabase.from('curriculum').upsert(curriculumPayload(c), { onConflict: 'id' }),
+    { quiet: true }
   );
   if (!res.ok) {
     const msg = String(res.error || '');
-    if (/curriculum|schema cache|does not exist|Could not find the table/i.test(msg)) {
+    if (isSchemaMissingError(msg) || /curriculum/i.test(msg)) {
       curriculumBackendOk = false;
     }
   } else {
@@ -283,10 +316,26 @@ export async function hydrate(user) {
   if (curricRes?.data && !curricRes.error) {
     curriculumBackendOk = true;
     next.curriculum = mapCurriculum(curricRes.data);
+    // If remote week 2 is still an empty placeholder, fold in the shipped Week 2 content
+    const def = defaultCurriculum();
+    const remoteW2 = next.curriculum.weeks?.find((w) => Number(w.week) === 2);
+    const defW2 = def.weeks?.find((w) => Number(w.week) === 2);
+    if (
+      remoteW2 &&
+      defW2 &&
+      (!remoteW2.objectives?.length || remoteW2.pending) &&
+      defW2.objectives?.length &&
+      defW2.pending === false
+    ) {
+      Object.assign(remoteW2, structuredClone(defW2));
+    }
   } else {
-    const errMsg = curricRes?.error?.message || curricRes?.error || '';
-    if (errMsg) curriculumBackendOk = false;
-    // Empty result (no row yet) is fine — table exists
+    const errMsg =
+      (typeof curricRes?.error === 'object' && curricRes.error?.message) ||
+      curricRes?.error ||
+      '';
+    if (errMsg || curricRes?.error) curriculumBackendOk = false;
+    // Empty result (no row yet) means the table exists
     if (curricRes && !curricRes.error && !curricRes.data) curriculumBackendOk = true;
     next.curriculum = defaultCurriculum();
   }
@@ -720,10 +769,100 @@ export async function submitWritten(studentId, quizId, answers, submittedAt) {
 export function setQuizPublished(quizId, published) {
   const next = structuredClone(state);
   const q = next.quizzes.find((x) => x.id === quizId);
-  if (!q) return;
-  q.published = published;
+  if (!q) return { ok: false, error: 'Test not found' };
+  q.published = !!published;
   set(next);
-  push(() => supabase.from('quizzes').update({ published }).eq('id', quizId));
+  push(() => supabase.from('quizzes').update({ published: !!published }).eq('id', quizId));
+  return { ok: true };
+}
+
+/**
+ * Create a free-response weekly test (manual quiz) and optionally publish it.
+ * @param {{ week?: number, title?: string, questions?: string|string[], due?: string, published?: boolean, sessionId?: string }} opts
+ */
+export async function createWeeklyTest(opts = {}) {
+  const weekNum = Math.max(1, Number(opts.week) || 1);
+  const lines = toLines(opts.questions);
+  if (!lines.length) {
+    return { ok: false, error: 'Add at least one quiz question (one per line).' };
+  }
+
+  // Link to a session in that week when possible (for student session detail + week hub)
+  const weekSessions = getSessionsForWeek(weekNum);
+  const sessionId =
+    opts.sessionId ||
+    weekSessions[0]?.id ||
+    getSessions().find((s) => Number(s.week) === weekNum)?.id ||
+    getSessions()[0]?.id ||
+    null;
+
+  const id = `qw${weekNum}-${Date.now().toString(36)}`;
+  const title =
+    String(opts.title || '').trim() ||
+    `Week ${weekNum} Test`;
+  const questions = lines.map((prompt, i) => ({
+    id: `${id}-${i + 1}`,
+    prompt,
+  }));
+  const published = !!opts.published;
+  const due = opts.due ? String(opts.due).slice(0, 10) : null;
+
+  const quiz = {
+    id,
+    sessionId,
+    type: 'manual',
+    title,
+    maxScore: 100,
+    prompt: null,
+    questions,
+    published,
+    due,
+  };
+
+  const next = structuredClone(state);
+  next.quizzes = [...(next.quizzes || []), quiz];
+  set(next);
+
+  const saved = await writeThrough(() =>
+    supabase.from('quizzes').insert({
+      id: quiz.id,
+      session_id: quiz.sessionId,
+      type: 'manual',
+      title: quiz.title,
+      max_score: 100,
+      prompt: null,
+      questions: quiz.questions,
+      published: quiz.published,
+      due_date: quiz.due,
+    })
+  );
+  if (!saved.ok) {
+    // keep local copy in demo; in Supabase mode roll back so UI matches server
+    if (USE_SUPABASE) {
+      const roll = structuredClone(state);
+      roll.quizzes = (roll.quizzes || []).filter((q) => q.id !== id);
+      set(roll);
+    }
+    return { ok: false, error: saved.error || 'Could not create test' };
+  }
+  return { ok: true, quiz };
+}
+
+/** Delete a test/quiz (admin). */
+export async function deleteQuiz(quizId) {
+  const next = structuredClone(state);
+  const before = next.quizzes.length;
+  next.quizzes = (next.quizzes || []).filter((q) => q.id !== quizId);
+  if (next.quizzes.length === before) return { ok: false, error: 'Test not found' };
+  set(next);
+  const saved = await writeThrough(() =>
+    supabase.from('quizzes').delete().eq('id', quizId)
+  );
+  if (!saved.ok && USE_SUPABASE) {
+    // reload is safer; leave deleted locally and surface error
+    return { ok: false, error: saved.error || 'Could not delete test on server' };
+  }
+  return { ok: true };
 }
 
 /** Admin toggles a class session live/offline for students. */

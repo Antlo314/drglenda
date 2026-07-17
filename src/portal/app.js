@@ -494,13 +494,20 @@ function accountView(user) {
    ======================================================================== */
 function shell(user, navItems, content) {
   const items = navItems
-    .map(
-      (n) => `<button class="nav-item ${route.name === n.route || n.active ? 'active' : ''}"
+    .map((n) => {
+      if (n.disabled) {
+        return `<button type="button" class="nav-item nav-item-disabled" disabled
+          title="${esc(n.disabledTitle || 'Coming soon')}" aria-disabled="true">
+          <span class="ni-ico">${n.icon}</span>${esc(n.label)}
+          <span class="ni-lock" aria-hidden="true">🔒</span>
+        </button>`;
+      }
+      return `<button class="nav-item ${route.name === n.route || n.active ? 'active' : ''}"
         data-action="go" data-route="${n.route}">
         <span class="ni-ico">${n.icon}</span>${esc(n.label)}
         ${n.badge ? `<span class="ni-badge">${n.badge}</span>` : ''}
-      </button>`
-    )
+      </button>`;
+    })
     .join('');
 
   return `
@@ -1042,7 +1049,13 @@ function studentNav(user) {
   return [
     { route: 'student-home', label: 'Dashboard', icon: '▥' },
     { route: 'curriculum', label: 'Curriculum', icon: '❖' },
-    { route: 'student-sessions', label: SESSIONS_LOCKED ? 'Class Sessions 🔒' : 'Class Sessions', icon: '▶' },
+    {
+      route: 'student-sessions',
+      label: 'Class Sessions',
+      icon: '▶',
+      disabled: SESSIONS_LOCKED,
+      disabledTitle: 'Class sessions are locked for now — use Curriculum and My Tests',
+    },
     { route: 'student-tests', label: 'My Tests', icon: '✓' },
     { route: 'discussion', label: 'Discussion', icon: '💬' },
     { route: 'account', label: 'Account', icon: '⚙' },
@@ -1068,10 +1081,17 @@ function studentHome(user) {
   </section>
 
   <div class="stat-grid">
-    ${statCard('Course progress', `${s.completionPct}%`, bar(s.completionPct))}
+    ${
+      sessionsLocked(user)
+        ? `${statCard('Average test score', avg)}
+    ${statCard('Results pending', s.pendingGrading)}
+    ${statCard('Tests taken', s.quizzesTaken)}
+    ${statCard('Next step', 'Curriculum', `<button class="link-arrow" data-action="go" data-route="curriculum">Open syllabus →</button>`)}`
+        : `${statCard('Course progress', `${s.completionPct}%`, bar(s.completionPct))}
     ${statCard('Sessions completed', `${s.completed}/${s.totalSessions}`)}
     ${statCard('Average test score', avg)}
-    ${statCard('Results pending', s.pendingGrading)}
+    ${statCard('Results pending', s.pendingGrading)}`
+    }
   </div>
 
   ${
@@ -1101,7 +1121,10 @@ function studentHome(user) {
          <p class="muted">New sessions are released weekly through the 12-week program.</p></section>`
         }
 
-  <section class="panel">
+  ${
+    sessionsLocked(user)
+      ? ''
+      : `<section class="panel">
     <div class="panel-head"><h2>Published class sessions</h2>
       <button class="btn btn-ghost btn-sm" data-action="go" data-route="student-sessions">View all →</button></div>
     <div class="session-list">
@@ -1117,6 +1140,7 @@ function studentHome(user) {
         .join('')}
     </div>
   </section>`
+  }`
   }`;
 }
 
@@ -2158,7 +2182,87 @@ function adminContent() {
     }</p>
   </section>
 
+  ${adminWeeklyTestsPanel()}
+
   ${adminMaterialsPanel()}`;
+}
+
+/** Admin: create free-response weekly tests and publish them for students. */
+function adminWeeklyTestsPanel() {
+  const quizzes = [...store.getQuizzes()].sort((a, b) =>
+    String(a.title).localeCompare(String(b.title))
+  );
+  const sessions = store.getSessions();
+  const weekOpts = [...new Set(sessions.map((s) => Number(s.week)).filter(Boolean))]
+    .sort((a, b) => a - b);
+  // Always offer weeks 1–12 for planning even if no session exists yet
+  for (let w = 1; w <= 12; w++) if (!weekOpts.includes(w)) weekOpts.push(w);
+  weekOpts.sort((a, b) => a - b);
+
+  const rows = quizzes.length
+    ? quizzes
+        .map((q) => {
+          const sx = store.getSessionById(q.sessionId);
+          const weekLabel = sx ? `W${sx.week}` : '—';
+          const qCount = Array.isArray(q.questions) ? q.questions.length : 0;
+          return `<div class="quiz-live-row week-test-row">
+            <span class="qlr-title">
+              <strong>${esc(q.title)}</strong>
+              <span class="muted"> · ${weekLabel}${q.due ? ` · due ${fmtDate(q.due)}` : ''} · ${qCount} question${qCount === 1 ? '' : 's'}</span>
+            </span>
+            ${q.published ? `<span class="pill pill-done">● Live</span>` : `<span class="pill pill-todo">Offline</span>`}
+            <button type="button" class="btn btn-sm ${q.published ? 'btn-outline' : 'btn-primary'}"
+              data-action="toggle-quiz-live" data-id="${q.id}">
+              ${q.published ? 'Take offline' : 'Publish to students'}
+            </button>
+            <button type="button" class="btn btn-sm btn-outline btn-danger-outline"
+              data-action="delete-quiz" data-id="${q.id}" title="Delete test">Delete</button>
+          </div>`;
+        })
+        .join('')
+    : `<p class="muted">No tests yet. Create Week 2’s test below, then publish it for students under <strong>My Tests</strong>.</p>`;
+
+  return `
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Weekly tests</h2>
+      <span class="muted" style="font-size:0.84rem">Create · edit live status · students see only published tests</span>
+    </div>
+    <p class="hint" style="margin-top:0">
+      Write free-response questions (one per line). Link to a week so the test appears with that week’s release.
+      Use <strong>Publish to students</strong> when the class is ready — offline tests stay hidden under My Tests.
+    </p>
+
+    <form id="createTestForm" class="create-test-form">
+      <div class="create-test-grid">
+        <label class="field"><span>Week</span>
+          <select name="week" required>
+            ${weekOpts.map((w) => `<option value="${w}" ${w === 2 ? 'selected' : ''}>Week ${w}</option>`).join('')}
+          </select>
+        </label>
+        <label class="field create-test-grow"><span>Test title</span>
+          <input type="text" name="title" placeholder="Week 2 Test — Business Structure &amp; Legal Foundation" required />
+        </label>
+        <label class="field"><span>Due date <em class="muted">(optional)</em></span>
+          <input type="date" name="due" />
+        </label>
+        <label class="field create-test-full"><span>Questions <em class="muted">(one per line)</em></span>
+          <textarea name="questions" rows="6" required
+            placeholder="What is the main liability difference between a sole proprietorship and an LLC?&#10;Why do funders care whether personal and business finances are separated?"></textarea>
+        </label>
+      </div>
+      <div class="create-test-actions">
+        <label class="check-inline">
+          <input type="checkbox" name="publishNow" />
+          <span>Publish to students immediately</span>
+        </label>
+        <button type="submit" class="btn btn-primary">Create weekly test</button>
+      </div>
+    </form>
+
+    <div class="panel-head" style="margin-top:18px"><h3 style="margin:0;font-size:1rem">All tests</h3></div>
+    <div class="quiz-live-list week-test-list">${rows}</div>
+  </section>`;
 }
 
 /* ---- Access: approved-student allowlist ----------------------------------- */
@@ -2474,6 +2578,10 @@ function render() {
   if (user.role === 'student') {
     const allowed = ['student-home', 'curriculum', 'student-sessions', 'student-tests', 'session', 'quiz', 'discussion', 'account'];
     if (!allowed.includes(route.name)) route = { name: 'student-home', params: {} };
+    // Class Sessions greyed out — bounce deep links to dashboard lock note
+    if (SESSIONS_LOCKED && (route.name === 'student-sessions' || route.name === 'session')) {
+      route = { name: 'student-home', params: {} };
+    }
     const views = {
       'student-home': studentHome,
       curriculum: () => curriculumView(user),
@@ -2767,8 +2875,18 @@ app.addEventListener('click', async (e) => {
     case 'toggle-quiz-live': {
       const q = store.getQuizById(d.id);
       if (!q) break;
-      store.setQuizPublished(q.id, !q.published);
-      toast(q.published ? 'Test taken offline' : 'Test is now live for students ✓');
+      const goingLive = !q.published;
+      store.setQuizPublished(q.id, goingLive);
+      toast(goingLive ? 'Test is now live for students ✓' : 'Test taken offline');
+      render();
+      break;
+    }
+    case 'delete-quiz': {
+      const q = store.getQuizById(d.id);
+      if (!q) break;
+      if (!confirm(`Delete test “${q.title}”? Student submissions for it may be lost.`)) break;
+      const res = await store.deleteQuiz(q.id);
+      toast(res.ok ? 'Test deleted' : res.error || 'Could not delete test');
       render();
       break;
     }
@@ -3152,6 +3270,36 @@ app.addEventListener('submit', async (e) => {
     const res = store.addAllowedStudent(form.email.value, form.note.value);
     toast(res.ok ? 'Email approved ✓' : res.error);
     if (res.ok) render();
+    return;
+  }
+
+  if (form.id === 'createTestForm') {
+    const week = Number(form.week.value);
+    const title = form.title.value.trim();
+    const questions = form.questions.value;
+    const due = form.due.value || null;
+    const publishNow = !!form.publishNow?.checked;
+    const unbusy = setBusy(form, 'Creating…');
+    const res = await store.createWeeklyTest({
+      week,
+      title,
+      questions,
+      due,
+      published: publishNow,
+    });
+    unbusy();
+    if (!res.ok) {
+      toast(res.error || 'Could not create test');
+      return;
+    }
+    toast(
+      publishNow
+        ? `Test created and published to students ✓`
+        : `Test created (offline) — use Publish when ready ✓`
+    );
+    form.reset();
+    if (form.week) form.week.value = String(week);
+    render();
     return;
   }
 

@@ -2268,6 +2268,51 @@ ol.wk-steps li::before {
   opacity: 0.92;
   border-style: dashed;
 }
+
+/* Greyed-out nav (e.g. Class Sessions locked for students) */
+.nav-item-disabled,
+button.nav-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  color: var(--muted, #6b6560);
+  pointer-events: none;
+  filter: grayscale(0.35);
+}
+.nav-item-disabled .ni-lock {
+  margin-left: auto;
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+/* Weekly test creator (admin Sessions page) */
+.create-test-form {
+  margin-top: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fffdf9 0%, #fff 100%);
+}
+.create-test-grid {
+  display: grid;
+  grid-template-columns: 7rem 1fr 10rem;
+  gap: 12px;
+}
+.create-test-grow { grid-column: span 1; }
+.create-test-full { grid-column: 1 / -1; }
+.create-test-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 14px;
+}
+.week-test-list { margin-top: 8px; }
+.week-test-row { flex-wrap: wrap; }
+@media (max-width: 720px) {
+  .create-test-grid { grid-template-columns: 1fr; }
+  .create-test-grow, .create-test-full { grid-column: 1; }
+}
 @media (max-width: 720px) {
   .week-release-row {
     grid-template-columns: 1fr auto;
