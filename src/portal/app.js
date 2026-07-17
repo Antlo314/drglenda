@@ -514,25 +514,141 @@ function accountView(user) {
 }
 
 /* ===========================================================================
+   HOW-TO HELP (dismissible callouts + header tips)
+   ======================================================================== */
+const helpOpen = new Set(); // which help panels are expanded this session
+
+function isHelpDismissed(key) {
+  if (!key) return false;
+  try {
+    return localStorage.getItem(`umof_help_${key}`) === '1';
+  } catch {
+    return false;
+  }
+}
+function dismissHelp(key) {
+  if (!key) return;
+  try {
+    localStorage.setItem(`umof_help_${key}`, '1');
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Dismissible onboarding / how-to callout. */
+function helpCallout({ id, title, steps = [], dismissKey }) {
+  const key = dismissKey || id;
+  if (isHelpDismissed(key)) return '';
+  const list = steps.map((s) => `<li>${s}</li>`).join('');
+  return `<aside class="help-callout" data-help-callout="${esc(key)}" role="note">
+    <span class="help-callout-ico" aria-hidden="true">?</span>
+    <div class="help-callout-body">
+      <strong>${esc(title)}</strong>
+      <ol>${list}</ol>
+      <div class="help-callout-actions">
+        <button type="button" class="btn btn-ghost btn-sm" data-action="dismiss-help" data-key="${esc(key)}">Got it</button>
+      </div>
+    </div>
+  </aside>`;
+}
+
+/** Compact How-to button for page headers. */
+function helpBtn(id) {
+  const open = helpOpen.has(id);
+  return `<button type="button" class="help-btn" data-action="toggle-help" data-help-id="${esc(id)}"
+      aria-expanded="${open ? 'true' : 'false'}">
+      <span class="help-btn-ico" aria-hidden="true">?</span> How to
+    </button>`;
+}
+
+/** Collapsible how-to panel (pair with helpBtn). */
+function helpPanel(id, title, steps = []) {
+  const open = helpOpen.has(id);
+  const list = steps.map((s) => `<li>${s}</li>`).join('');
+  return `<div class="help-panel${open ? ' open' : ''}" id="help-panel-${esc(id)}" ${open ? '' : 'hidden'}>
+      <strong>${esc(title)}</strong>
+      <ol>${list}</ol>
+    </div>`;
+}
+
+function pageHeadHelp(title, muted, { helpId, helpTitle, helpSteps, actions = '' } = {}) {
+  return `
+  <div class="page-head page-head-with-help">
+    <div><h1>${title}</h1>${muted ? `<p class="muted">${muted}</p>` : ''}</div>
+    <div class="head-actions">${helpId ? helpBtn(helpId) : ''}${actions}</div>
+  </div>
+  ${helpId ? helpPanel(helpId, helpTitle || `How to use ${title}`, helpSteps || []) : ''}`;
+}
+
+/* ===========================================================================
    SHELL (after login)
    ======================================================================== */
-function shell(user, navItems, content) {
-  const items = navItems
-    .map((n) => {
-      if (n.disabled) {
-        return `<button type="button" class="nav-item nav-item-disabled" disabled
-          title="${esc(n.disabledTitle || 'Coming soon')}" aria-disabled="true">
-          <span class="ni-ico">${n.icon}</span>${esc(n.label)}
-          <span class="ni-lock" aria-hidden="true">🔒</span>
+const NAV_MORE_KEY = 'umof_admin_more_open';
+function isNavGroupOpen(id) {
+  // Auto-open if a child route is active
+  try {
+    return sessionStorage.getItem(`${NAV_MORE_KEY}_${id}`) === '1';
+  } catch {
+    return false;
+  }
+}
+function setNavGroupOpen(id, open) {
+  try {
+    sessionStorage.setItem(`${NAV_MORE_KEY}_${id}`, open ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
+function renderNavItem(n) {
+  if (n.type === 'group') {
+    const childActive = (n.children || []).some(
+      (c) => route.name === c.route || c.active || (c.routes && c.routes.includes(route.name))
+    );
+    const open = childActive || isNavGroupOpen(n.id || n.label);
+    const kids = (n.children || [])
+      .map((c) => {
+        const active =
+          route.name === c.route ||
+          c.active ||
+          (c.routes && c.routes.includes(route.name));
+        return `<button class="nav-item ${active ? 'active' : ''}"
+          data-action="go" data-route="${c.route}">
+          <span class="ni-ico">${c.icon || '·'}</span>${esc(c.label)}
+          ${c.badge ? `<span class="ni-badge">${c.badge}</span>` : ''}
         </button>`;
-      }
-      return `<button class="nav-item ${route.name === n.route || n.active ? 'active' : ''}"
-        data-action="go" data-route="${n.route}">
-        <span class="ni-ico">${n.icon}</span>${esc(n.label)}
-        ${n.badge ? `<span class="ni-badge">${n.badge}</span>` : ''}
-      </button>`;
-    })
-    .join('');
+      })
+      .join('');
+    return `<div class="nav-group${open ? ' open' : ''}" data-nav-group="${esc(n.id || n.label)}">
+      <button type="button" class="nav-item nav-group-toggle${childActive ? ' active' : ''}"
+        data-action="toggle-nav-group" data-group="${esc(n.id || n.label)}"
+        aria-expanded="${open ? 'true' : 'false'}">
+        <span class="ni-ico">${n.icon || '⋯'}</span>${esc(n.label)}
+        <span class="nav-chev" aria-hidden="true">▾</span>
+      </button>
+      <div class="nav-group-children">${kids}</div>
+    </div>`;
+  }
+  if (n.disabled) {
+    return `<button type="button" class="nav-item nav-item-disabled" disabled
+      title="${esc(n.disabledTitle || 'Coming soon')}" aria-disabled="true">
+      <span class="ni-ico">${n.icon}</span>${esc(n.label)}
+      <span class="ni-lock" aria-hidden="true">🔒</span>
+    </button>`;
+  }
+  const active =
+    route.name === n.route ||
+    n.active ||
+    (n.routes && n.routes.includes(route.name));
+  return `<button class="nav-item ${active ? 'active' : ''}"
+    data-action="go" data-route="${n.route}">
+    <span class="ni-ico">${n.icon}</span>${esc(n.label)}
+    ${n.badge ? `<span class="ni-badge">${n.badge}</span>` : ''}
+  </button>`;
+}
+
+function shell(user, navItems, content) {
+  const items = navItems.map(renderNavItem).join('');
 
   return `
   ${siteFeedbackBarHtml()}
@@ -751,11 +867,15 @@ function curriculumView(user) {
 
   if (!isAdmin) {
     return `
-  <div class="page-head"><div>
-    <span class="eyebrow">Course Syllabus</span>
-    <h1>${esc(c.title)}</h1>
-    <p class="muted">${esc(c.tagline)}</p>
-  </div></div>
+  ${pageHeadHelp(esc(c.title), esc(c.tagline || 'Course syllabus'), {
+    helpId: 'student-curriculum',
+    helpTitle: 'How to use Curriculum',
+    helpSteps: [
+      'Click a week to expand objectives, assignment, and discussion.',
+      'Weeks marked “coming soon” are not published yet — check back later.',
+      'After reading the week, complete any live work under <strong>My Tests</strong>.',
+    ],
+  })}
   ${syllabusOverview}
   <div class="panel-head curric-weeks-head"><h2>Weekly Curriculum</h2>
     <span class="muted">Click a week to expand</span></div>
@@ -768,14 +888,17 @@ function curriculumView(user) {
   /* ---- Admin: view mode (with Edit + per-week Publish) or edit mode ---- */
   if (!curricEditing) {
     return `
-  <div class="page-head">
-    <div>
-      <span class="eyebrow">Course Syllabus · Admin</span>
-      <h1>${esc(c.title)}</h1>
-      <p class="muted">${esc(c.tagline)} · ${publishedCount} of ${weeks.length} week${weeks.length === 1 ? '' : 's'} published to students</p>
-    </div>
-    <button type="button" class="btn btn-primary" data-action="curric-edit">Edit</button>
-  </div>
+  ${pageHeadHelp(esc(c.title), `${esc(c.tagline || '')} · ${publishedCount} of ${weeks.length} week${weeks.length === 1 ? '' : 's'} published`, {
+    helpId: 'admin-curriculum',
+    helpTitle: 'How to publish curriculum',
+    helpSteps: [
+      'Expand a week to review what students will see.',
+      'Use <strong>Publish to students</strong> (or <strong>Publish entire week</strong>) when the week is ready.',
+      'Click <strong>Edit</strong> to change titles, objectives, assignments, and quiz prompts.',
+      'Unpublished weeks show as “coming soon” for students.',
+    ],
+    actions: `<button type="button" class="btn btn-primary" data-action="curric-edit">Edit</button>`,
+  })}
   ${syllabusOverview}
   <div class="panel-head curric-weeks-head"><h2>Weekly Curriculum</h2>
     <span class="muted">Expand a week · use <strong>Publish to students</strong> when it’s ready</span></div>
@@ -786,18 +909,20 @@ function curriculumView(user) {
   }
 
   return `
-  <div class="page-head">
-    <div>
-      <span class="eyebrow">Course Syllabus · Admin</span>
-      <h1>Edit Curriculum</h1>
-      <p class="muted">Update content, then use <strong>Publish to students</strong> on each week when it’s ready.</p>
-    </div>
-    <div class="curric-head-actions">
+  ${pageHeadHelp('Edit Curriculum', 'Update content, then publish each week when ready.', {
+    helpId: 'admin-curriculum-edit',
+    helpTitle: 'Editing tips',
+    helpSteps: [
+      'Change the course overview fields, then click <strong>Save</strong>.',
+      'Edit each week’s title, objectives, assignment, discussion, and quiz lines.',
+      'Use <strong>Publish to students</strong> on a week when content is ready.',
+      'Add or delete weeks only when restructuring the full program.',
+    ],
+    actions: `
       <button type="button" class="btn btn-outline" data-action="curric-cancel">Cancel</button>
       <button type="button" class="btn btn-primary" data-action="curric-save">Save</button>
-      <button type="button" class="btn btn-outline" data-action="add-curric-week">+ Add week</button>
-    </div>
-  </div>
+      <button type="button" class="btn btn-outline" data-action="add-curric-week">+ Add week</button>`,
+  })}
 
   <section class="panel curric-overview curric-edit-overview">
     <div class="panel-head"><h2>Course overview</h2>
@@ -1032,12 +1157,29 @@ function discussionView(user) {
       </div>`
     : '';
 
+  const isAdmin = user?.role === 'admin';
   return `
-  <div class="page-head"><div>
-    <span class="eyebrow">Class Community</span>
-    <h1>Class Discussion</h1>
-    <p class="muted">Post your discussion answers, ask questions, and reply to classmates.</p>
-  </div></div>
+  ${pageHeadHelp(
+    'Class Discussion',
+    isAdmin
+      ? 'Class community · same board students use · you can delete posts'
+      : 'Post your discussion answers, ask questions, and reply to classmates.',
+    {
+      helpId: isAdmin ? 'admin-discussion' : 'student-discussion',
+      helpTitle: isAdmin ? 'How to moderate discussion' : 'How to use Discussion',
+      helpSteps: isAdmin
+        ? [
+            'Students post answers to the week’s discussion prompt here.',
+            'Reply to guide the conversation; delete posts that break guidelines.',
+            'Point students to the prompt shown at the top of this page.',
+          ]
+        : [
+            'Read the discussion prompt for the current week (if shown above).',
+            'Write your post, then use <strong>Reply</strong> on classmates’ messages.',
+            'Keep the tone respectful and supportive.',
+          ],
+    }
+  )}
 
   ${prompt ? `<div class="disc-prompt">
     <span class="disc-prompt-label">This week’s discussion prompt</span>
@@ -1095,10 +1237,31 @@ function studentHome(user) {
   const avg = s.avgScore == null ? '—' : `${s.avgScore}%`;
 
   return `
-  <div class="page-head">
-    <div><h1>Welcome back, ${esc(user.name.split(' ')[0])}</h1>
-    <p class="muted">The Entrepreneur’s Journey — Funding Masterclass · ${esc(user.cohort)}</p></div>
-  </div>
+  ${pageHeadHelp(
+    `Welcome back, ${esc(user.name.split(' ')[0])}`,
+    `The Entrepreneur’s Journey — Funding Masterclass · ${esc(user.cohort || '')}`,
+    {
+      helpId: 'student-home',
+      helpTitle: 'How to use your portal',
+      helpSteps: [
+        'Open <strong>Curriculum</strong> for this week’s objectives, assignment, and discussion prompt.',
+        'Open <strong>My Tests</strong> to complete work your instructor has published.',
+        'Use <strong>Discussion</strong> to post answers and reply to classmates.',
+        'Questions or document uploads? Email <a href="mailto:admin@umof.org">admin@umof.org</a>.',
+      ],
+    }
+  )}
+
+  ${helpCallout({
+    id: 'student-quickstart',
+    dismissKey: 'student-quickstart',
+    title: 'Student quick start',
+    steps: [
+      'Start with <strong>Curriculum</strong> — expand the current week to see what to study.',
+      'Then open <strong>My Tests</strong> for any live quizzes or written work.',
+      'Class Sessions may stay locked until your instructor releases recordings.',
+    ],
+  })}
 
   <section class="panel student-contact-note" role="note">
     <p>For curriculum or grading questions, or to submit business documents, please email
@@ -1441,7 +1604,15 @@ function studentTests(user) {
   const quizzes = store.getVisibleQuizzes();
   if (!quizzes.length) {
     return `
-    <div class="page-head"><h1>My Tests</h1><p class="muted">Your quizzes and assignments across the program.</p></div>
+    ${pageHeadHelp('My Tests', 'Your quizzes and assignments across the program.', {
+      helpId: 'student-tests',
+      helpTitle: 'How My Tests works',
+      helpSteps: [
+        'Only tests your instructor has published appear here.',
+        'When a test opens, complete it and submit before any due date shown.',
+        'After grading, your score and feedback show on the same item.',
+      ],
+    })}
     <section class="panel"><div class="empty"><div class="empty-ico">📝</div><h3>No tests open yet</h3>
       <p class="muted">Your instructor opens each test when the class is ready. Check back soon.</p></div></section>`;
   }
@@ -1464,7 +1635,15 @@ function studentTests(user) {
   });
 
   return `
-  <div class="page-head"><h1>My Tests</h1><p class="muted">Your quizzes and assignments across the program.</p></div>
+  ${pageHeadHelp('My Tests', 'Your quizzes and assignments across the program.', {
+    helpId: 'student-tests',
+    helpTitle: 'How My Tests works',
+    helpSteps: [
+      'Only tests your instructor has published appear here.',
+      'Open a test, answer every question, then submit.',
+      'Submitted work waits for grading; scores appear here when ready.',
+    ],
+  })}
   <section class="panel mobile-cards-only">
     <div class="mobile-card-list">
       ${rows
@@ -1508,13 +1687,32 @@ function adminNav() {
   const pending = store.getGradingQueue().length;
   return [
     { route: 'admin-home', label: 'Dashboard', icon: '▥' },
-    { route: 'admin-students', label: 'Students', icon: '👥' },
-    { route: 'admin-grading', label: 'Grading', icon: '✎', badge: pending || '' },
-    { route: 'admin-crm', label: 'CRM', icon: '☎' },
-    { route: 'admin-content', label: 'Sessions', icon: '▶' },
     { route: 'curriculum', label: 'Curriculum', icon: '❖' },
+    { route: 'admin-content', label: 'Sessions', icon: '▶' },
+    {
+      route: 'admin-grading',
+      label: 'Grading',
+      icon: '✎',
+      badge: pending || '',
+      routes: ['admin-grading', 'grade'],
+    },
     { route: 'discussion', label: 'Discussion', icon: '💬' },
-    { route: 'admin-access', label: 'Access', icon: '🔑' },
+    {
+      type: 'group',
+      id: 'more-tools',
+      label: 'More tools',
+      icon: '⋯',
+      children: [
+        {
+          route: 'admin-students',
+          label: 'Students',
+          icon: '👥',
+          routes: ['admin-students', 'admin-student'],
+        },
+        { route: 'admin-crm', label: 'CRM', icon: '☎' },
+        { route: 'admin-access', label: 'Access', icon: '🔑' },
+      ],
+    },
     { route: 'account', label: 'Account', icon: '⚙' },
   ];
 }
@@ -1531,10 +1729,48 @@ function adminHome() {
     : 0;
 
   return `
-  <div class="page-head"><div><h1>Instructor Dashboard</h1><p class="muted">Summer 2026 cohort · Funding Masterclass · full admin control</p></div>
-    <div class="head-actions">
-      <button class="btn btn-outline btn-sm" data-action="refresh-progress" title="Reload student submissions from the server">↻ Refresh</button>
-    </div>
+  ${pageHeadHelp('Instructor Dashboard', 'Weekly teaching overview · Summer 2026 cohort', {
+    helpId: 'admin-home',
+    helpTitle: 'How to run the class each week',
+    helpSteps: [
+      'Update <strong>Curriculum</strong> for the week, then publish it to students.',
+      'In <strong>Sessions</strong>, set each recording’s week number and use <strong>Publish Week</strong>.',
+      'Create or open the weekly test under <strong>Sessions → Weekly tests</strong>, then publish it.',
+      'Grade submissions under <strong>Grading</strong> when students turn work in.',
+      'Use <strong>More tools</strong> for Students roster, CRM leads, and Access (approved emails).',
+    ],
+    actions: `<button class="btn btn-outline btn-sm" data-action="refresh-progress" title="Reload student submissions from the server">↻ Refresh</button>`,
+  })}
+
+  ${helpCallout({
+    id: 'admin-quickstart',
+    dismissKey: 'admin-quickstart',
+    title: 'Quick start for instructors',
+    steps: [
+      'Primary work lives in the left menu: <strong>Curriculum</strong>, <strong>Sessions</strong>, and <strong>Grading</strong>.',
+      'Students only see what you publish (syllabus weeks, sessions, and live tests).',
+      'Approve emails under <strong>More tools → Access</strong> before a new student can sign up.',
+      'Need help mid-task? Click the <strong>How to</strong> button on any page.',
+    ],
+  })}
+
+  <div class="quick-checklist" aria-label="This week checklist">
+    <button type="button" class="quick-check-card" data-action="go" data-route="curriculum">
+      <strong>1. Curriculum</strong>
+      <span>Publish this week’s syllabus</span>
+    </button>
+    <button type="button" class="quick-check-card" data-action="go" data-route="admin-content">
+      <strong>2. Sessions</strong>
+      <span>Release recordings &amp; tests</span>
+    </button>
+    <button type="button" class="quick-check-card" data-action="go" data-route="admin-grading">
+      <strong>3. Grading</strong>
+      <span>${queue.length ? `${queue.length} waiting` : 'All caught up'}</span>
+    </button>
+    <button type="button" class="quick-check-card" data-action="go" data-route="admin-crm">
+      <strong>4. CRM</strong>
+      <span>${activeLeads} active lead${activeLeads === 1 ? '' : 's'}</span>
+    </button>
   </div>
 
   <div class="stat-grid">
@@ -1588,14 +1824,20 @@ function adminHome() {
 function adminStudents() {
   const students = store.getStudents();
   return `
-  <div class="page-head"><div><h1>Students</h1><p class="muted">${students.length} enrolled · open a student for detail and grading</p></div>
-    <div class="head-actions">
+  ${pageHeadHelp('Students', `${students.length} enrolled · open a student for detail and grading`, {
+    helpId: 'admin-students',
+    helpTitle: 'How to use Students',
+    helpSteps: [
+      'Click a row to open that student’s progress, sessions, and test history.',
+      'Use <strong>Refresh</strong> if a new submission is not showing yet.',
+      'Export the roster with CSV / Word / PDF when you need a report.',
+    ],
+    actions: `
       <button class="btn btn-outline btn-sm" data-action="refresh-progress" title="Reload student submissions from the server">↻ Refresh</button>
       <button class="btn btn-outline btn-sm" data-action="export-students-csv">⬇ CSV</button>
       <button class="btn btn-outline btn-sm" data-action="export-students-word">⬇ Word</button>
-      <button class="btn btn-outline btn-sm" data-action="export-students-pdf">⬇ PDF</button>
-    </div>
-  </div>
+      <button class="btn btn-outline btn-sm" data-action="export-students-pdf">⬇ PDF</button>`,
+  })}
   <section class="panel no-pad">
     <div class="table-scroll">
     <table class="data-table">
@@ -1713,11 +1955,21 @@ function adminGrading() {
   const queue = store.getGradingQueue();
   const graded = store.getGradedSubmissions();
   return `
-  <div class="page-head"><div><h1>Grading</h1><p class="muted">${queue.length} submission${queue.length === 1 ? '' : 's'} awaiting your review · ${graded.length} graded (use <strong>Edit</strong> to update)</p></div>
-    <div class="head-actions">
-      <button class="btn btn-outline btn-sm" data-action="refresh-progress" title="Reload student submissions from the server">↻ Refresh submissions</button>
-    </div>
-  </div>
+  ${pageHeadHelp(
+    'Grading',
+    `${queue.length} awaiting review · ${graded.length} graded`,
+    {
+      helpId: 'admin-grading',
+      helpTitle: 'How to grade',
+      helpSteps: [
+        'Open a <strong>Grade →</strong> item in the queue.',
+        'Enter a score (and optional feedback), then save to release to the student.',
+        'Use <strong>Edit</strong> on graded items to update a score later.',
+        'Click <strong>Refresh submissions</strong> if something just came in.',
+      ],
+      actions: `<button class="btn btn-outline btn-sm" data-action="refresh-progress" title="Reload student submissions from the server">↻ Refresh submissions</button>`,
+    }
+  )}
   <section class="panel compact-panel">
     <p class="muted" style="margin:0">
       Grade with the <strong>Grading Breakdown</strong> table (<strong>Criteria</strong> and <strong>Points</strong>).
@@ -2158,24 +2410,29 @@ function adminContent() {
     .join('');
 
   return `
-  <div class="page-head">
-    <div>
-      <h1>Class Sessions</h1>
-      <p class="muted">Release weeks to students · ${publishedSessions} of ${sessions.length} session${sessions.length === 1 ? '' : 's'} published</p>
-    </div>
-    <div class="head-actions">
-      <button class="btn btn-primary" data-action="add-session">+ Add Session</button>
-    </div>
-  </div>
+  ${pageHeadHelp(
+    'Class Sessions',
+    `Release weeks to students · ${publishedSessions} of ${sessions.length} published`,
+    {
+      helpId: 'admin-sessions',
+      helpTitle: 'How to release a week',
+      helpSteps: [
+        'Set each recording’s <strong>Wk</strong> number to the correct week.',
+        'Use <strong>Release to students</strong> → <strong>Publish Week N sessions</strong>.',
+        'Create the weekly test under <strong>Weekly tests</strong>, then publish it.',
+        'Optional: add a Google Meet link under Live Class (collapsed below).',
+      ],
+      actions: `<button class="btn btn-primary" data-action="add-session">+ Add Session</button>`,
+    }
+  )}
 
   ${curricMissingBanner}
 
   <section class="panel">
     <div class="panel-head">
       <h2>Release to students</h2>
-      <span class="muted" style="font-size:0.84rem">Sessions + tests per week (set Wk on each session first)</span>
+      <span class="muted" style="font-size:0.84rem">Set Wk on sessions first, then publish the week</span>
     </div>
-    <p class="hint" style="margin-top:0">For Week 2: set session <strong>Wk = 2</strong> below, then click <strong>Publish Week 2 sessions</strong>. Students only see published sessions.</p>
     <div class="week-release-list-wrap">
       ${releaseCards || '<p class="muted">Add a curriculum week or session to start releasing content.</p>'}
     </div>
@@ -2183,31 +2440,36 @@ function adminContent() {
 
   <section class="panel">
     <div class="panel-head">
-      <h2>Live Class &mdash; Google Meet</h2>
-      <span class="muted" style="font-size:0.84rem">One link per week &middot; shared across all sessions in that week</span>
-    </div>
-    <div class="week-meet-list">
-      ${meetBlocks || '<p class="muted">No weeks yet.</p>'}
-    </div>
-    <p class="hint">Create the Meet link in Google Calendar for proper host controls. Students see a "Join Live Class" button on every published session card for that week.</p>
-  </section>
-
-  <section class="panel">
-    <div class="panel-head">
       <h2>Sessions</h2>
-      <span class="muted" style="font-size:0.84rem">Edit fields · publish individually · changes save automatically</span>
+      <span class="muted" style="font-size:0.84rem">Edit fields · publish individually</span>
     </div>
     <div class="session-cards">
       ${sessionCards || '<p class="muted">No sessions yet. Add one to get started.</p>'}
     </div>
     <p class="hint">${
       USE_SUPABASE
-        ? 'Upload a recording (MP4) to host it privately in Supabase Storage. Or keep using YouTube/Vimeo embed URLs. New sessions start hidden until you publish.'
-        : 'Connect Supabase to upload and host videos. In demo mode, sessions use embedded sample videos. New sessions start hidden until you publish.'
+        ? 'Upload a recording (MP4) or use a YouTube/Vimeo embed URL. New sessions start hidden until you publish.'
+        : 'Connect Supabase to upload videos. Demo mode uses sample embeds. New sessions start hidden until published.'
     }</p>
   </section>
 
   ${adminWeeklyTestsPanel()}
+
+  <details class="panel panel-collapsible">
+    <summary>
+      <div class="panel-head">
+        <h2>Live Class — Google Meet</h2>
+        <span class="muted" style="font-size:0.84rem">Optional · one link per week</span>
+      </div>
+      <span class="muted" aria-hidden="true">▾</span>
+    </summary>
+    <div class="panel-collapse-body">
+      <div class="week-meet-list">
+        ${meetBlocks || '<p class="muted">No weeks yet.</p>'}
+      </div>
+      <p class="hint">Create the Meet link in Google Calendar for proper host controls. Students see Join Live Class on published sessions for that week.</p>
+    </div>
+  </details>
 
   ${adminMaterialsPanel()}`;
 }
@@ -2295,8 +2557,19 @@ function adminAccess() {
   const list = store.getAllowedStudents();
   const registered = new Set(store.getStudents().map((s) => (s.email || '').toLowerCase()));
   return `
-  <div class="page-head"><div><h1>Access — Approved Students</h1>
-    <p class="muted">Only people on this list can create a student account. Add the email each student used on the enrollment form.</p></div></div>
+  ${pageHeadHelp(
+    'Access — Approved Students',
+    'Only people on this list can create a student account.',
+    {
+      helpId: 'admin-access',
+      helpTitle: 'How Access works',
+      helpSteps: [
+        'Add the exact email from the student’s enrollment form.',
+        'They can then create a login with that same email on the portal.',
+        'Remove an email to block new signups (existing accounts stay until deleted in Supabase).',
+      ],
+    }
+  )}
 
   <section class="panel">
     <div class="panel-head"><h2>Add an approved email</h2></div>
@@ -2479,15 +2752,22 @@ function adminCRM() {
   const grantTotal = granted.reduce((sum, p) => sum + (Number(p.grantAmount) || 0), 0);
 
   return `
-  <div class="page-head"><div><h1>Live CRM</h1><p class="muted">Students &amp; leads in one place · changes save instantly</p></div>
-    <div class="head-actions">
+  ${pageHeadHelp('Live CRM', 'Students & leads in one place · changes save instantly', {
+    helpId: 'admin-crm',
+    helpTitle: 'How to use the CRM',
+    helpSteps: [
+      'Switch between <strong>Leads</strong> and <strong>Students</strong> with the tabs below.',
+      'Add a lead, then set status to <strong>enrolled</strong> (or Enable login) so they can create a portal account.',
+      'Use search and status filters to find people quickly.',
+      'Export CSV / Word / PDF when you need reports.',
+    ],
+    actions: `
       ${isLeads ? `<button class="btn btn-primary btn-sm" data-action="toggle-add-lead">＋ Add record</button>` : ''}
       <button class="btn btn-outline btn-sm" data-action="export-csv">⬇ CSV</button>
       <button class="btn btn-outline btn-sm" data-action="export-word">⬇ Word</button>
       <button class="btn btn-outline btn-sm" data-action="export-pdf">⬇ PDF</button>
-      ${isLeads && totalLeads ? `<button class="btn btn-ghost btn-sm btn-danger" data-action="clear-leads">Clear all</button>` : ''}
-    </div>
-  </div>
+      ${isLeads && totalLeads ? `<button class="btn btn-ghost btn-sm btn-danger" data-action="clear-leads">Clear all</button>` : ''}`,
+  })}
 
   ${editingLead ? recordForm(editingLead) : isLeads && crm.adding ? recordForm() : ''}
 
@@ -2870,6 +3150,29 @@ app.addEventListener('click', async (e) => {
         /* ignore */
       }
       document.getElementById('siteFeedbackBar')?.remove();
+      break;
+    }
+    case 'toggle-nav-group': {
+      const id = d.group || 'more-tools';
+      const el = node.closest('.nav-group');
+      if (!el) break;
+      const open = !el.classList.contains('open');
+      el.classList.toggle('open', open);
+      node.setAttribute('aria-expanded', open ? 'true' : 'false');
+      setNavGroupOpen(id, open);
+      break;
+    }
+    case 'toggle-help': {
+      const id = d.helpId;
+      if (!id) break;
+      if (helpOpen.has(id)) helpOpen.delete(id);
+      else helpOpen.add(id);
+      render();
+      break;
+    }
+    case 'dismiss-help': {
+      dismissHelp(d.key);
+      render();
       break;
     }
     case 'toggle-pw': {

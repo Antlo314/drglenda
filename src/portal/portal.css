@@ -510,6 +510,27 @@ body.side-nav-open { overflow: hidden; }
   margin-top: 2px;
 }
 .side-nav { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+.nav-group { display: flex; flex-direction: column; gap: 2px; }
+.nav-group-toggle .nav-chev {
+  margin-left: auto;
+  font-size: 0.7rem;
+  opacity: 0.75;
+  transition: transform 0.2s ease;
+}
+.nav-group.open .nav-group-toggle .nav-chev { transform: rotate(180deg); }
+.nav-group-children {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0 4px 10px;
+  margin-left: 8px;
+  border-left: 2px solid rgba(255, 255, 255, 0.12);
+}
+.nav-group.open .nav-group-children { display: flex; }
+.nav-group-children .nav-item {
+  font-size: 0.88rem;
+  padding: 9px 12px;
+}
 .nav-item {
   display: flex;
   align-items: center;
@@ -2348,6 +2369,156 @@ button.nav-item:disabled {
   margin-left: auto;
   font-size: 0.75rem;
   opacity: 0.85;
+}
+
+/* How-to help callouts */
+.help-callout {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  margin: 0 0 18px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--maroon, #5c0f1c) 18%, var(--line, #e8dfd6));
+  background: linear-gradient(180deg, #fffdf9 0%, #fff 100%);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.04));
+}
+.help-callout-ico {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--maroon, #5c0f1c);
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.85rem;
+}
+.help-callout-body { flex: 1; min-width: 0; }
+.help-callout-body strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--maroon-900, #2a0810);
+  font-size: 0.95rem;
+}
+.help-callout-body ol,
+.help-callout-body ul {
+  margin: 0;
+  padding-left: 1.15rem;
+  color: var(--ink, #1a1113);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.help-callout-body li { margin: 3px 0; }
+.help-callout-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.help-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line, #e0d6cc);
+  background: #fff;
+  color: var(--maroon, #5c0f1c);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 650;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.help-btn:hover {
+  border-color: var(--maroon, #5c0f1c);
+  background: #fffdf9;
+}
+.help-btn-ico {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--maroon, #5c0f1c);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+.help-panel {
+  display: none;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px dashed color-mix(in srgb, var(--maroon, #5c0f1c) 25%, transparent);
+  background: #fffdf9;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.help-panel.open { display: block; }
+.help-panel ol,
+.help-panel ul {
+  margin: 6px 0 0;
+  padding-left: 1.15rem;
+}
+.help-panel li { margin: 3px 0; }
+.page-head-with-help {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.quick-checklist {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin: 0 0 18px;
+}
+.quick-check-card {
+  text-align: left;
+  border: 1px solid var(--line, #e0d6cc);
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.quick-check-card:hover {
+  border-color: var(--maroon, #5c0f1c);
+  box-shadow: 0 4px 14px rgba(42, 8, 16, 0.06);
+}
+.quick-check-card strong {
+  display: block;
+  font-size: 0.92rem;
+  color: var(--maroon-900, #2a0810);
+  margin-bottom: 4px;
+}
+.quick-check-card span {
+  font-size: 0.82rem;
+  color: var(--muted, #6b5d61);
+  line-height: 1.35;
+}
+.panel-collapsible > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0;
+}
+.panel-collapsible > summary::-webkit-details-marker { display: none; }
+.panel-collapsible > summary .panel-head {
+  flex: 1;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+.panel-collapsible .panel-collapse-body {
+  margin-top: 12px;
+  padding-top: 4px;
 }
 
 /* Weekly test creator (admin Sessions page) */
