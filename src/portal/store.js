@@ -218,23 +218,45 @@ const toLines = (v) => {
     .map((s) => s.trim())
     .filter(Boolean);
 };
+/** False when `public.curriculum` is missing / unreachable (admin should run curriculum.sql). */
+let curriculumBackendOk = !USE_SUPABASE;
+export function isCurriculumBackendOk() {
+  return curriculumBackendOk;
+}
+
+function curriculumPayload(c) {
+  return {
+    id: 'main',
+    title: c.title || '',
+    tagline: c.tagline || '',
+    length: c.length || '',
+    format: c.format || '',
+    learning_style: c.learningStyle || '',
+    description: c.description || '',
+    weeks: c.weeks || [],
+    updated_at: new Date().toISOString(),
+  };
+}
+
 function persistCurriculum(c) {
-  push(() =>
-    supabase.from('curriculum').upsert(
-      {
-        id: 'main',
-        title: c.title || '',
-        tagline: c.tagline || '',
-        length: c.length || '',
-        format: c.format || '',
-        learning_style: c.learningStyle || '',
-        description: c.description || '',
-        weeks: c.weeks || [],
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'id' }
-    )
+  push(() => supabase.from('curriculum').upsert(curriculumPayload(c), { onConflict: 'id' }));
+}
+
+/** Await curriculum write; marks backend unavailable when the table is missing. */
+async function persistCurriculumAsync(c) {
+  if (!USE_SUPABASE || !supabase) return { ok: true };
+  const res = await writeThrough(() =>
+    supabase.from('curriculum').upsert(curriculumPayload(c), { onConflict: 'id' })
   );
+  if (!res.ok) {
+    const msg = String(res.error || '');
+    if (/curriculum|schema cache|does not exist|Could not find the table/i.test(msg)) {
+      curriculumBackendOk = false;
+    }
+  } else {
+    curriculumBackendOk = true;
+  }
+  return res;
 }
 
 export async function hydrate(user) {
@@ -258,9 +280,16 @@ export async function hydrate(user) {
   next.sessions = (sessions || []).map(mapSession);
   next.quizzes = (quizzes || []).map(mapQuiz);
   // Single-row syllabus; fall back to the built-in default if empty / table missing
-  next.curriculum = curricRes?.data && !curricRes.error
-    ? mapCurriculum(curricRes.data)
-    : defaultCurriculum();
+  if (curricRes?.data && !curricRes.error) {
+    curriculumBackendOk = true;
+    next.curriculum = mapCurriculum(curricRes.data);
+  } else {
+    const errMsg = curricRes?.error?.message || curricRes?.error || '';
+    if (errMsg) curriculumBackendOk = false;
+    // Empty result (no row yet) is fine — table exists
+    if (curricRes && !curricRes.error && !curricRes.data) curriculumBackendOk = true;
+    next.curriculum = defaultCurriculum();
+  }
 
   // mint short-lived signed URLs for any sessions whose video lives in Storage
   const fileSessions = next.sessions.filter((s) => s.isFile && s.storagePath);
@@ -698,15 +727,25 @@ export function setQuizPublished(quizId, published) {
 }
 
 /** Admin toggles a class session live/offline for students. */
-export function setSessionPublished(sessionId, published) {
+export async function setSessionPublished(sessionId, published) {
   const next = structuredClone(state);
   const s = next.sessions.find((x) => x.id === sessionId);
-  if (!s) return;
+  if (!s) return { ok: false, error: 'Session not found' };
+  const prev = s.published;
   s.published = !!published;
   set(next);
-  push(() =>
+  const saved = await writeThrough(() =>
     supabase.from('sessions').update({ published: !!published }).eq('id', sessionId)
   );
+  if (!saved.ok) {
+    // roll back cache so the UI matches the database
+    const roll = structuredClone(state);
+    const rs = roll.sessions.find((x) => x.id === sessionId);
+    if (rs) rs.published = prev;
+    set(roll);
+    return { ok: false, error: saved.error || 'Could not save publish state' };
+  }
+  return { ok: true };
 }
 
 /**
@@ -714,9 +753,9 @@ export function setSessionPublished(sessionId, published) {
  * syllabus week, all sessions that week, and all linked tests.
  * @param {number|string} weekNum
  * @param {boolean} publish  true = go live, false = take offline
- * @returns {{ week, curriculum, sessions, quizzes }}
+ * @returns {Promise<{ week, curriculum, sessions, quizzes, ok, error? }>}
  */
-export function setWeekPublished(weekNum, publish) {
+export async function setWeekPublished(weekNum, publish) {
   const wNum = Number(weekNum);
   const next = structuredClone(state);
   const c = (next.curriculum ??= defaultCurriculum());
@@ -756,19 +795,64 @@ export function setWeekPublished(weekNum, publish) {
 
   set(next);
 
-  if (curriculumTouched) persistCurriculum(c);
-  for (const id of sessionIds) {
-    push(() => supabase.from('sessions').update({ published: !!publish }).eq('id', id));
+  const errors = [];
+  let curriculumSaved = !curriculumTouched;
+
+  if (curriculumTouched) {
+    const cres = await persistCurriculumAsync(c);
+    curriculumSaved = cres.ok;
+    if (!cres.ok) {
+      errors.push(
+        curriculumBackendOk === false
+          ? 'Syllabus table missing — run supabase/curriculum.sql in Supabase SQL Editor'
+          : `Syllabus: ${cres.error || 'save failed'}`
+      );
+    }
   }
+
+  let sessionsSaved = 0;
+  for (const id of sessionIds) {
+    const r = await writeThrough(() =>
+      supabase.from('sessions').update({ published: !!publish }).eq('id', id)
+    );
+    if (r.ok) sessionsSaved += 1;
+    else errors.push(`Session ${id}: ${r.error || 'save failed'}`);
+  }
+
+  let quizzesSaved = 0;
   for (const id of quizIds) {
-    push(() => supabase.from('quizzes').update({ published: !!publish }).eq('id', id));
+    const r = await writeThrough(() =>
+      supabase.from('quizzes').update({ published: !!publish }).eq('id', id)
+    );
+    if (r.ok) quizzesSaved += 1;
+    else errors.push(`Test ${id}: ${r.error || 'save failed'}`);
+  }
+
+  // Nothing to publish for this week
+  if (sessionIds.length === 0 && quizIds.length === 0 && !curriculumTouched) {
+    return {
+      ok: false,
+      week: wNum,
+      curriculum: false,
+      sessions: 0,
+      quizzes: 0,
+      error: `No sessions, tests, or syllabus found for Week ${wNum}. Set a session’s week number to ${wNum}, then publish.`,
+    };
+  }
+
+  if (sessionIds.length === 0 && publish) {
+    errors.push(
+      `No sessions assigned to Week ${wNum}. Edit a session’s “Wk” field to ${wNum}, then publish again.`
+    );
   }
 
   return {
+    ok: errors.length === 0,
     week: wNum,
-    curriculum: curriculumTouched,
-    sessions: sessionIds.length,
-    quizzes: quizIds.length,
+    curriculum: curriculumSaved && curriculumTouched,
+    sessions: sessionsSaved,
+    quizzes: quizzesSaved,
+    error: errors.length ? errors.join(' · ') : null,
   };
 }
 
@@ -783,12 +867,23 @@ export function getWeekReleaseStatus(weekNum) {
     if (sx && Number(sx.week) === wNum) return true;
     return new RegExp(`\\bweek\\s*${wNum}\\b`, 'i').test(q.title || '');
   });
+  const sessionsLive =
+    sessions.length > 0 && sessions.every((s) => s.published !== false);
+  const quizzesLive = quizzes.length === 0 || quizzes.every((q) => q.published);
+  // Syllabus only blocks "all live" when the curriculum backend is available
+  const syllabusLive = !week || !week.pending || !curriculumBackendOk;
   return {
     week: wNum,
     title: week?.title || (sessions[0]?.title ? `Week ${wNum}` : `Week ${wNum}`),
     curriculum: week
-      ? { exists: true, published: !week.pending, pending: !!week.pending, title: week.title }
-      : { exists: false, published: false, pending: true, title: '' },
+      ? {
+          exists: true,
+          published: !week.pending,
+          pending: !!week.pending,
+          title: week.title,
+          backendOk: curriculumBackendOk,
+        }
+      : { exists: false, published: false, pending: true, title: '', backendOk: curriculumBackendOk },
     sessions: sessions.map((s) => ({
       id: s.id,
       title: s.title,
@@ -800,12 +895,10 @@ export function getWeekReleaseStatus(weekNum) {
       published: !!q.published,
       due: q.due,
     })),
-    allPublished:
-      !!week &&
-      !week.pending &&
-      sessions.every((s) => s.published !== false) &&
-      quizzes.every((q) => q.published) &&
-      (sessions.length > 0 || quizzes.length > 0 || !week.pending),
+    // "All live" = every *session* for the week is published (what students watch).
+    // Syllabus/tests are shown separately; missing syllabus table should not block session release.
+    allPublished: sessionsLive && quizzesLive && (sessions.length > 0 ? true : syllabusLive && quizzes.length > 0),
+    sessionsLive,
     anyPublished:
       (week && !week.pending) ||
       sessions.some((s) => s.published !== false) ||

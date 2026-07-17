@@ -1899,7 +1899,12 @@ function releaseChip(on, onLabel = 'Live', offLabel = 'Offline') {
  */
 function weekReleaseCard(status) {
   const w = status.week;
-  const allOn = status.allPublished;
+  // Primary signal: are this week's sessions live for students?
+  const sessionsLive = status.sessionsLive || (
+    status.sessions.length > 0 && status.sessions.every((s) => s.published)
+  );
+  const allOn = status.allPublished || sessionsLive;
+  const noSessions = status.sessions.length === 0;
   const curricRow = status.curriculum.exists
     ? `<div class="week-release-row">
         <span class="wrr-kind">Curriculum</span>
@@ -1932,7 +1937,7 @@ function weekReleaseCard(status) {
         .join('')
     : `<div class="week-release-row wrr-muted">
         <span class="wrr-kind">Session</span>
-        <span class="wrr-title muted">No recordings for this week yet</span>
+        <span class="wrr-title muted">No recordings for Week ${w} — set a session’s <strong>Wk</strong> number to ${w} below, then publish.</span>
       </div>`;
 
   const quizRows = status.quizzes.length
@@ -1954,24 +1959,30 @@ function weekReleaseCard(status) {
         <span class="wrr-title muted">No tests linked to this week</span>
       </div>`;
 
+  const openDefault = w === 1 || w === 2 || noSessions === false && !sessionsLive;
+
   return `
-  <details class="week-release-card${allOn ? ' week-release-live' : ''}" ${w === 1 ? 'open' : ''}>
+  <details class="week-release-card${sessionsLive ? ' week-release-live' : ''}" ${openDefault ? 'open' : ''}>
     <summary class="week-release-sum">
       <span class="wk-num-badge">Week ${w}</span>
       <span class="week-release-title">${esc(status.title || `Week ${w}`)}</span>
-      ${allOn
-        ? `<span class="pill pill-done">All live for students</span>`
-        : `<span class="pill pill-todo">Not fully released</span>`}
+      ${sessionsLive
+        ? `<span class="pill pill-done">${status.sessions.length} session${status.sessions.length === 1 ? '' : 's'} live</span>`
+        : noSessions
+          ? `<span class="pill pill-todo">No sessions</span>`
+          : `<span class="pill pill-todo">Sessions hidden</span>`}
       <span class="wk-chev" aria-hidden="true">▾</span>
     </summary>
     <div class="week-release-body">
       <div class="week-release-actions">
         <p class="muted week-release-hint">
-          Publish releases the <strong>syllabus</strong>, all <strong>sessions</strong>, and linked <strong>tests</strong> for this week to students in one step.
+          <strong>Publish Week ${w}</strong> sets every session (and linked tests) for this week live for students.
+          ${noSessions ? ` First assign sessions to week ${w} using the <strong>Wk</strong> field below.` : ''}
         </p>
-        <button type="button" class="btn ${allOn ? 'btn-outline' : 'btn-primary'}"
-          data-action="publish-week" data-week="${w}" data-publish="${allOn ? '0' : '1'}">
-          ${allOn ? `Unpublish Week ${w}` : `Publish Week ${w} to students`}
+        <button type="button" class="btn ${sessionsLive ? 'btn-outline' : 'btn-primary'}"
+          data-action="publish-week" data-week="${w}" data-publish="${sessionsLive ? '0' : '1'}"
+          ${noSessions ? 'disabled title="Assign sessions to this week first"' : ''}>
+          ${sessionsLive ? `Unpublish Week ${w} sessions` : `Publish Week ${w} sessions`}
         </button>
       </div>
       <div class="week-release-list">
@@ -1992,6 +2003,14 @@ function adminContent() {
 
   const publishedSessions = sessions.filter((s) => s.published !== false).length;
   const releaseCards = weeks.map((w) => weekReleaseCard(store.getWeekReleaseStatus(w))).join('');
+  const curricBackendOk = store.isCurriculumBackendOk();
+  const curricMissingBanner = curricBackendOk
+    ? ''
+    : `<section class="panel" style="border-color:#c45c5c;background:#fdf2f2">
+        <div class="panel-head"><h2>Syllabus database not connected</h2></div>
+        <p class="muted" style="margin:0">The <code>curriculum</code> table is missing in Supabase, so syllabus publish cannot save.
+        Session publish still works. Run <code>supabase/curriculum.sql</code> in the Supabase SQL Editor (one time), then reload.</p>
+      </section>`;
 
   const meetBlocks = weeks
     .map((w) => {
@@ -2100,12 +2119,14 @@ function adminContent() {
     </div>
   </div>
 
+  ${curricMissingBanner}
+
   <section class="panel">
     <div class="panel-head">
       <h2>Release to students</h2>
-      <span class="muted" style="font-size:0.84rem">Curriculum + sessions + tests per week</span>
+      <span class="muted" style="font-size:0.84rem">Sessions + tests per week (set Wk on each session first)</span>
     </div>
-    <p class="hint" style="margin-top:0">Use <strong>Publish Week N to students</strong> when a week is ready. Students only see published sessions, live tests, and published curriculum weeks.</p>
+    <p class="hint" style="margin-top:0">For Week 2: set session <strong>Wk = 2</strong> below, then click <strong>Publish Week 2 sessions</strong>. Students only see published sessions.</p>
     <div class="week-release-list-wrap">
       ${releaseCards || '<p class="muted">Add a curriculum week or session to start releasing content.</p>'}
     </div>
@@ -2755,18 +2776,24 @@ app.addEventListener('click', async (e) => {
       const s = store.getSessionById(d.id);
       if (!s) break;
       const next = s.published === false;
-      store.setSessionPublished(s.id, next);
-      toast(next ? `“${s.title}” published to students ✓` : `“${s.title}” unpublished`);
+      const res = await store.setSessionPublished(s.id, next);
+      if (!res?.ok) {
+        toast(res?.error || 'Could not update session publish state');
+      } else {
+        toast(next ? `“${s.title}” published to students ✓` : `“${s.title}” unpublished`);
+      }
       render();
       break;
     }
     case 'publish-week': {
       const wk = Number(d.week);
       const publish = d.publish !== '0' && d.publish !== 'false';
-      const res = store.setWeekPublished(wk, publish);
-      if (publish) {
+      const res = await store.setWeekPublished(wk, publish);
+      if (!res?.ok) {
+        toast(res?.error || `Could not update Week ${wk}`);
+      } else if (publish) {
         toast(
-          `Week ${wk} published · syllabus${res.curriculum ? '' : ' (n/a)'} · ${res.sessions} session${res.sessions === 1 ? '' : 's'} · ${res.quizzes} test${res.quizzes === 1 ? '' : 's'} ✓`
+          `Week ${wk} live · ${res.sessions} session${res.sessions === 1 ? '' : 's'}${res.quizzes ? ` · ${res.quizzes} test${res.quizzes === 1 ? '' : 's'}` : ''}${res.curriculum ? ' · syllabus' : ''} ✓`
         );
       } else {
         toast(`Week ${wk} unpublished for students`);
