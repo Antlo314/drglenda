@@ -6,6 +6,8 @@
 -- ============================================================================
 
 -- ── Sessions ────────────────────────────────────────────────────────────────
+-- NOTE: do not list `published` here — that column is added by sessions-publish.sql.
+-- After that migration, existing rows are set published=true; new portal sessions start false.
 insert into public.sessions (id, week, title, date, duration_min, thumb, video_url, summary, notes) values
 ('s1',1,'Foundations of Funding Readiness','2026-07-06',58,'/assets/edu-1.png','https://www.youtube.com/embed/ScMzIvxBSi4',
  'What lenders and funders actually look for, and how to assess where your business stands today.',
@@ -47,7 +49,7 @@ insert into public.quizzes (id, session_id, type, title, max_score, prompt, ques
    {"id":"qw1-4","prompt":"Name two characteristics of successful entrepreneurs."},
    {"id":"qw1-5","prompt":"What is entrepreneurial readiness?"},
    {"id":"qw1-6","prompt":"Set a SMART goal for your business — make it Specific, Measurable, Achievable, Relevant, and Time-bound."},
-   {"id":"qw1-7","prompt":"Complete and expand on this goal: “I will increase my monthly revenue by ______.” (Tip: a revenue target paired with a customer-retention strategy is a cheat code that shows lenders you can sustain growth.)"},
+   {"id":"qw1-7","prompt":"Complete and expand on this goal: \"I will increase my monthly revenue by ______.\" (Tip: a revenue target paired with a customer-retention strategy is a cheat code that shows lenders you can sustain growth.)"},
    {"id":"qw1-8","prompt":"What are your financial goals?"},
    {"id":"qw1-9","prompt":"What are your operational goals?"},
    {"id":"qw1-10","prompt":"What are your marketing goals?"},

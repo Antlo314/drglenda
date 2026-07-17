@@ -553,14 +553,54 @@ function linesText(arr) {
   return (arr || []).join('\n');
 }
 
-function weekBlock(w, open) {
+/** Publish / unpublish control for one curriculum week (admin only). */
+function weekPublishControls(w, { compact = false } = {}) {
+  const published = !w.pending;
+  const wk = w.week;
+  const status = store.getWeekReleaseStatus(wk);
+  const sessLive = status.sessions.filter((s) => s.published).length;
+  const quizLive = status.quizzes.filter((q) => q.published).length;
+  const label = published ? 'Unpublish from students' : 'Publish to students';
+  const hint = published
+    ? 'Students can see this week’s full curriculum.'
+    : 'Students only see “coming soon” until you publish.';
+  const releaseSummary = `<span class="curric-release-meta muted">
+      Sessions ${sessLive}/${status.sessions.length || 0} · Tests ${quizLive}/${status.quizzes.length || 0}
+    </span>`;
+  return `<div class="curric-publish-bar${compact ? ' curric-publish-bar-compact' : ''}">
+    ${compact ? '' : `<span class="curric-publish-hint muted">${hint}</span>`}
+    ${compact ? '' : releaseSummary}
+    <div class="curric-publish-btns">
+      <button type="button"
+        class="btn btn-sm ${published ? 'btn-outline' : 'btn-primary'}"
+        data-action="toggle-curric-week-publish"
+        data-week="${wk}"
+        aria-pressed="${published ? 'true' : 'false'}">
+        ${published ? '● Unpublish syllabus' : 'Publish syllabus'}
+      </button>
+      <button type="button"
+        class="btn btn-sm ${status.allPublished ? 'btn-outline' : 'btn-primary'}"
+        data-action="publish-week"
+        data-week="${wk}"
+        data-publish="${status.allPublished ? '0' : '1'}"
+        title="Syllabus + sessions + tests for this week">
+        ${status.allPublished ? `Unpublish entire week` : `Publish entire week`}
+      </button>
+    </div>
+    ${compact ? '' : `<span class="sr-only">${label}</span>`}
+  </div>`;
+}
+
+function weekBlock(w, open, { admin = false } = {}) {
+  const published = !w.pending;
   const head = `<summary>
       <span class="wk-num">Week ${w.week}</span>
       <span class="wk-title">${esc(w.title || 'Coming soon')}</span>
+      ${admin ? `<span class="pill ${published ? 'pill-done' : 'pill-todo'}">${published ? 'Published' : 'Coming soon'}</span>` : ''}
       <span class="wk-chev" aria-hidden="true">▾</span>
     </summary>`;
 
-  if (w.pending) {
+  if (w.pending && !admin) {
     return `<details class="wk wk-pending"${open ? ' open' : ''} data-week="${w.week}">
       ${head}
       <div class="wk-body"><p class="muted">The detailed curriculum for this week will be published here.</p></div>
@@ -576,13 +616,27 @@ function weekBlock(w, open) {
       .join('')}</${ordered ? 'ol' : 'ul'}>`;
   };
 
-  return `<details class="wk"${open ? ' open' : ''} data-week="${w.week}">
-    ${head}
-    <div class="wk-body">
-      ${section('Learning Objectives', list(w.objectives, false))}
+  // Admins always reach here (pending student case returned above). Show
+  // content when present so instructors can review before publishing.
+  const emptyPending =
+    w.pending &&
+    !w.objectives?.length &&
+    !w.assignment &&
+    !w.discussion &&
+    !w.quiz?.length;
+  const bodyInner = emptyPending
+    ? `<p class="muted">No content yet — use <strong>Edit</strong> to add details, then publish to students.</p>`
+    : `${section('Learning Objectives', list(w.objectives, false))}
       ${section('Assignment', w.assignment ? `<p class="wk-callout wk-assign">${esc(w.assignment)}</p>` : '')}
       ${section('Discussion Post', w.discussion ? `<p class="wk-callout wk-discuss">“${esc(w.discussion)}”</p>` : '')}
       ${section('Weekly Quiz', list(w.quiz, true))}
+      ${w.pending ? `<p class="muted curric-pending-note">This week is not visible to students yet.</p>` : ''}`;
+
+  return `<details class="wk${w.pending ? ' wk-pending' : ''}${admin ? ' wk-admin' : ''}"${open ? ' open' : ''} data-week="${w.week}">
+    ${head}
+    <div class="wk-body">
+      ${bodyInner}
+      ${admin ? weekPublishControls(w) : ''}
     </div>
   </details>`;
 }
@@ -599,6 +653,7 @@ function weekEditor(w, open) {
       <span class="wk-chev" aria-hidden="true">▾</span>
     </summary>
     <div class="wk-body curric-edit-body">
+      ${weekPublishControls(w)}
       <div class="curric-edit-grid">
         <label class="field"><span>Week #</span>
           <input type="number" min="1" max="52" value="${wk}"
@@ -606,14 +661,6 @@ function weekEditor(w, open) {
         <label class="field curric-edit-grow"><span>Week title</span>
           <input type="text" value="${esc(w.title || '')}" placeholder="e.g. Business Structure &amp; Legal Foundation"
             data-action="curric-week-title" data-week="${wk}" /></label>
-        <label class="field curric-toggle">
-          <span>Visibility</span>
-          <label class="check-inline">
-            <input type="checkbox" data-action="curric-week-pending" data-week="${wk}"
-              ${w.pending ? 'checked' : ''} />
-            <span>Coming soon (hide details from students)</span>
-          </label>
-        </label>
       </div>
       <label class="field"><span>Learning objectives <em class="muted">(one per line)</em></span>
         <textarea rows="4" placeholder="Understand the entrepreneurial journey.&#10;Identify characteristics of successful entrepreneurs."
@@ -633,6 +680,10 @@ function weekEditor(w, open) {
           data-action="curric-week-quiz" data-week="${wk}">${esc(linesText(w.quiz))}</textarea>
       </label>
       <div class="curric-edit-actions">
+        <button type="button" class="btn btn-sm ${published ? 'btn-outline' : 'btn-primary'}"
+          data-action="toggle-curric-week-publish" data-week="${wk}">
+          ${published ? 'Unpublish from students' : 'Publish to students'}
+        </button>
         <button type="button" class="btn btn-primary btn-sm" data-action="save-curric-week" data-week="${wk}">
           Save
         </button>
@@ -653,7 +704,7 @@ function curriculumView(user) {
       ? curricOpenWeek
       : weeks[0]?.week ?? null;
 
-  const studentSyllabus = `
+  const syllabusOverview = `
   <section class="panel curric-overview">
     <div class="curric-meta">
       <div><span class="cm-label">Course Length</span><strong>${esc(c.length)}</strong></div>
@@ -662,14 +713,9 @@ function curriculumView(user) {
     </div>
     <div class="panel-head"><h2>Course Description</h2></div>
     <p class="curric-desc">${esc(c.description)}</p>
-  </section>
+  </section>`;
 
-  <div class="panel-head curric-weeks-head"><h2>Weekly Curriculum</h2>
-    <span class="muted">Click a week to expand</span></div>
-  <div class="curric-weeks">
-    ${weeks.map((w) => weekBlock(w, Number(w.week) === Number(openWeek))).join('')}
-  </div>
-  <p class="curric-note muted">New weeks are released each week through the ${esc(String(parseInt(c.length, 10) || ''))}-week program.</p>`;
+  const publishedCount = weeks.filter((w) => !w.pending).length;
 
   if (!isAdmin) {
     return `
@@ -678,21 +724,33 @@ function curriculumView(user) {
     <h1>${esc(c.title)}</h1>
     <p class="muted">${esc(c.tagline)}</p>
   </div></div>
-  ${studentSyllabus}`;
+  ${syllabusOverview}
+  <div class="panel-head curric-weeks-head"><h2>Weekly Curriculum</h2>
+    <span class="muted">Click a week to expand</span></div>
+  <div class="curric-weeks">
+    ${weeks.map((w) => weekBlock(w, Number(w.week) === Number(openWeek))).join('')}
+  </div>
+  <p class="curric-note muted">New weeks are released each week through the ${esc(String(parseInt(c.length, 10) || ''))}-week program.</p>`;
   }
 
-  /* ---- Admin: view mode (with Edit) or edit mode (Save / Delete) ---- */
+  /* ---- Admin: view mode (with Edit + per-week Publish) or edit mode ---- */
   if (!curricEditing) {
     return `
   <div class="page-head">
     <div>
       <span class="eyebrow">Course Syllabus · Admin</span>
       <h1>${esc(c.title)}</h1>
-      <p class="muted">${esc(c.tagline)} · Preview what students see</p>
+      <p class="muted">${esc(c.tagline)} · ${publishedCount} of ${weeks.length} week${weeks.length === 1 ? '' : 's'} published to students</p>
     </div>
     <button type="button" class="btn btn-primary" data-action="curric-edit">Edit</button>
   </div>
-  ${studentSyllabus}`;
+  ${syllabusOverview}
+  <div class="panel-head curric-weeks-head"><h2>Weekly Curriculum</h2>
+    <span class="muted">Expand a week · use <strong>Publish to students</strong> when it’s ready</span></div>
+  <div class="curric-weeks">
+    ${weeks.map((w) => weekBlock(w, Number(w.week) === Number(openWeek), { admin: true })).join('')}
+  </div>
+  <p class="curric-note muted">Unpublished weeks show as “coming soon” for students. Publishing reveals the full week content immediately.</p>`;
   }
 
   return `
@@ -700,7 +758,7 @@ function curriculumView(user) {
     <div>
       <span class="eyebrow">Course Syllabus · Admin</span>
       <h1>Edit Curriculum</h1>
-      <p class="muted">Update the course outline students see. Use <strong>Save</strong> when finished; use <strong>Delete</strong> on a week to remove it.</p>
+      <p class="muted">Update content, then use <strong>Publish to students</strong> on each week when it’s ready.</p>
     </div>
     <div class="curric-head-actions">
       <button type="button" class="btn btn-outline" data-action="curric-cancel">Cancel</button>
@@ -732,7 +790,7 @@ function curriculumView(user) {
   </section>
 
   <div class="panel-head curric-weeks-head"><h2>Weekly curriculum</h2>
-    <span class="muted">${weeks.length} week${weeks.length === 1 ? '' : 's'} · Save or Delete each week as needed</span></div>
+    <span class="muted">${weeks.length} week${weeks.length === 1 ? '' : 's'} · Publish, Save, or Delete each week</span></div>
   <div class="curric-weeks">
     ${
       weeks.length
@@ -994,7 +1052,7 @@ function studentNav(user) {
 function studentHome(user) {
   const s = store.getStudentStats(user.id);
   const prog = store.getProgress(user.id);
-  const sessions = store.getSessions();
+  const sessions = store.getVisibleSessions();
   const next = sessions.find((x) => !prog.completed.includes(x.id));
   const avg = s.avgScore == null ? '—' : `${s.avgScore}%`;
 
@@ -1019,6 +1077,12 @@ function studentHome(user) {
   ${
     sessionsLocked(user)
       ? SESSIONS_LOCK_NOTE
+      : sessions.length === 0
+        ? `<section class="panel"><div class="empty">
+            <div class="empty-ico">▶</div>
+            <h3>No sessions published yet</h3>
+            <p class="muted">Your instructor will release class sessions here week by week.</p>
+          </div></section>`
       : `${
           next
             ? `<section class="panel">
@@ -1038,7 +1102,7 @@ function studentHome(user) {
         }
 
   <section class="panel">
-    <div class="panel-head"><h2>All class sessions</h2>
+    <div class="panel-head"><h2>Published class sessions</h2>
       <button class="btn btn-ghost btn-sm" data-action="go" data-route="student-sessions">View all →</button></div>
     <div class="session-list">
       ${sessions
@@ -1061,10 +1125,13 @@ function studentSessions(user) {
     return `<div class="page-head"><h1>Class Sessions</h1></div>${SESSIONS_LOCK_NOTE}`;
   }
   const prog = store.getProgress(user.id);
-  const sessions = store.getSessions();
+  const sessions = store.getVisibleSessions();
   return `
-  <div class="page-head"><h1>Class Sessions</h1><p class="muted">Watch recordings and review the notes for each week.</p></div>
-  <div class="card-grid">
+  <div class="page-head"><h1>Class Sessions</h1>
+    <p class="muted">Watch recordings and review the notes for each published week.</p></div>
+  ${
+    sessions.length
+      ? `<div class="card-grid">
     ${sessions
       .map((x) => {
         const done = prog.completed.includes(x.id);
@@ -1081,7 +1148,13 @@ function studentSessions(user) {
         </button>`;
       })
       .join('')}
-  </div>`;
+  </div>`
+      : `<section class="panel"><div class="empty">
+          <div class="empty-ico">▶</div>
+          <h3>No sessions published yet</h3>
+          <p class="muted">Your instructor will release class sessions here when each week goes live.</p>
+        </div></section>`
+  }`;
 }
 
 function sessionDetail(user) {
@@ -1091,6 +1164,12 @@ function sessionDetail(user) {
   }
   const sx = store.getSessionById(route.params.id);
   if (!sx) return `<p>Session not found.</p>`;
+  // Students cannot open unpublished sessions (admins can for preview).
+  if (user.role !== 'admin' && sx.published === false) {
+    return `<button class="back-link" data-action="go" data-route="student-sessions">← All sessions</button>
+    <div class="page-head"><h1>${esc(sx.title)}</h1></div>
+    <section class="panel"><p class="muted">This session isn’t published yet. Your instructor will release it when the class is ready.</p></section>`;
+  }
   const prog = store.getProgress(user.id);
   const done = prog.completed.includes(sx.id);
   const quizzes = store.getVisibleQuizzesForSession(sx.id);
@@ -1807,16 +1886,118 @@ function gradeView() {
   </form>`;
 }
 
+/** Status chip for week-release rows. */
+function releaseChip(on, onLabel = 'Live', offLabel = 'Offline') {
+  return on
+    ? `<span class="pill pill-done">● ${onLabel}</span>`
+    : `<span class="pill pill-todo">${offLabel}</span>`;
+}
+
+/**
+ * One-week release panel: curriculum + sessions + tests with
+ * Publish entire week / Unpublish and individual toggles.
+ */
+function weekReleaseCard(status) {
+  const w = status.week;
+  const allOn = status.allPublished;
+  const curricRow = status.curriculum.exists
+    ? `<div class="week-release-row">
+        <span class="wrr-kind">Curriculum</span>
+        <span class="wrr-title">${esc(status.curriculum.title || `Week ${w} syllabus`)}</span>
+        ${releaseChip(status.curriculum.published, 'Published', 'Coming soon')}
+        <button type="button" class="btn btn-sm ${status.curriculum.published ? 'btn-outline' : 'btn-primary'}"
+          data-action="toggle-curric-week-publish" data-week="${w}">
+          ${status.curriculum.published ? 'Unpublish' : 'Publish'}
+        </button>
+      </div>`
+    : `<div class="week-release-row wrr-muted">
+        <span class="wrr-kind">Curriculum</span>
+        <span class="wrr-title muted">No syllabus week ${w} yet — add it under Curriculum</span>
+        <button type="button" class="btn btn-ghost btn-sm" data-action="go" data-route="curriculum">Open Curriculum →</button>
+      </div>`;
+
+  const sessionRows = status.sessions.length
+    ? status.sessions
+        .map(
+          (s) => `<div class="week-release-row">
+        <span class="wrr-kind">Session</span>
+        <span class="wrr-title">${esc(s.title)}</span>
+        ${releaseChip(s.published, 'Published', 'Hidden')}
+        <button type="button" class="btn btn-sm ${s.published ? 'btn-outline' : 'btn-primary'}"
+          data-action="toggle-session-publish" data-id="${s.id}">
+          ${s.published ? 'Unpublish' : 'Publish'}
+        </button>
+      </div>`
+        )
+        .join('')
+    : `<div class="week-release-row wrr-muted">
+        <span class="wrr-kind">Session</span>
+        <span class="wrr-title muted">No recordings for this week yet</span>
+      </div>`;
+
+  const quizRows = status.quizzes.length
+    ? status.quizzes
+        .map(
+          (q) => `<div class="week-release-row">
+        <span class="wrr-kind">Test</span>
+        <span class="wrr-title">${esc(q.title)}${q.due ? ` <span class="muted">· due ${fmtDate(q.due)}</span>` : ''}</span>
+        ${releaseChip(q.published, 'Live', 'Offline')}
+        <button type="button" class="btn btn-sm ${q.published ? 'btn-outline' : 'btn-primary'}"
+          data-action="toggle-quiz-live" data-id="${q.id}">
+          ${q.published ? 'Take offline' : 'Go live'}
+        </button>
+      </div>`
+        )
+        .join('')
+    : `<div class="week-release-row wrr-muted">
+        <span class="wrr-kind">Test</span>
+        <span class="wrr-title muted">No tests linked to this week</span>
+      </div>`;
+
+  return `
+  <details class="week-release-card${allOn ? ' week-release-live' : ''}" ${w === 1 ? 'open' : ''}>
+    <summary class="week-release-sum">
+      <span class="wk-num-badge">Week ${w}</span>
+      <span class="week-release-title">${esc(status.title || `Week ${w}`)}</span>
+      ${allOn
+        ? `<span class="pill pill-done">All live for students</span>`
+        : `<span class="pill pill-todo">Not fully released</span>`}
+      <span class="wk-chev" aria-hidden="true">▾</span>
+    </summary>
+    <div class="week-release-body">
+      <div class="week-release-actions">
+        <p class="muted week-release-hint">
+          Publish releases the <strong>syllabus</strong>, all <strong>sessions</strong>, and linked <strong>tests</strong> for this week to students in one step.
+        </p>
+        <button type="button" class="btn ${allOn ? 'btn-outline' : 'btn-primary'}"
+          data-action="publish-week" data-week="${w}" data-publish="${allOn ? '0' : '1'}">
+          ${allOn ? `Unpublish Week ${w}` : `Publish Week ${w} to students`}
+        </button>
+      </div>
+      <div class="week-release-list">
+        ${curricRow}
+        ${sessionRows}
+        ${quizRows}
+      </div>
+    </div>
+  </details>`;
+}
+
 function adminContent() {
   const sessions = store.getSessions();
+  const curricWeeks = (store.getCurriculum().weeks || []).map((w) => Number(w.week));
+  const sessionWeeks = sessions.map((s) => Number(s.week));
+  const weeks = [...new Set([...curricWeeks, ...sessionWeeks].filter((n) => Number.isFinite(n) && n > 0))]
+    .sort((a, b) => a - b);
 
-  // Unique weeks sorted
-  const weeks = [...new Set(sessions.map((s) => s.week))].sort((a, b) => a - b);
+  const publishedSessions = sessions.filter((s) => s.published !== false).length;
+  const releaseCards = weeks.map((w) => weekReleaseCard(store.getWeekReleaseStatus(w))).join('');
 
-  const meetBlocks = weeks.map((w) => {
-    const wSessions = sessions.filter((s) => s.week === w);
-    const rep = wSessions[0];
-    return `
+  const meetBlocks = weeks
+    .map((w) => {
+      const wSessions = sessions.filter((s) => Number(s.week) === Number(w));
+      const rep = wSessions[0] || { meetUrl: '', liveAt: '' };
+      return `
     <div class="week-meet-block">
       <div class="week-meet-label">
         <span class="wk-num-badge">Week ${w}</span>
@@ -1829,21 +2010,24 @@ function adminContent() {
         ${rep.meetUrl ? `<a class="btn btn-light btn-sm" href="${esc(rep.meetUrl)}" target="_blank" rel="noopener">Test &#8599;</a>` : ''}
       </div>
     </div>`;
-  }).join('');
+    })
+    .join('');
 
-  const sessionCards = sessions.map((x) => {
-    const qz = store.getQuizzesForSession(x.id);
-    const source = x.isFile
-      ? `<span class="pill pill-done">Uploaded</span>`
-      : `<span class="pill pill-todo">Embed URL</span>`;
-    const uploader = USE_SUPABASE
-      ? `<label class="upload-btn sm">${x.isFile ? 'Replace video' : 'Upload video'}
+  const sessionCards = sessions
+    .map((x) => {
+      const qz = store.getQuizzesForSession(x.id);
+      const published = x.published !== false;
+      const source = x.isFile
+        ? `<span class="pill pill-done">Uploaded</span>`
+        : `<span class="pill pill-todo">Embed URL</span>`;
+      const uploader = USE_SUPABASE
+        ? `<label class="upload-btn sm">${x.isFile ? 'Replace video' : 'Upload video'}
            <input type="file" accept="video/*" data-action="upload-video" data-session="${x.id}" hidden />
          </label>`
-      : '';
+        : '';
 
-    return `
-    <div class="session-card">
+      return `
+    <div class="session-card${published ? '' : ' session-card-offline'}">
       <div class="session-card-header">
         <div class="session-card-wk">
           <span class="sc-label">Wk</span>
@@ -1852,6 +2036,11 @@ function adminContent() {
         </div>
         <input type="text" class="session-edit-input sc-title-input" data-action="session-title"
           data-id="${x.id}" value="${esc(x.title)}" placeholder="Session Title" />
+        ${releaseChip(published, 'Published', 'Hidden')}
+        <button type="button" class="btn btn-sm ${published ? 'btn-outline' : 'btn-primary'}"
+          data-action="toggle-session-publish" data-id="${x.id}">
+          ${published ? 'Unpublish' : 'Publish to students'}
+        </button>
         <button class="row-del" data-action="delete-session" data-id="${x.id}"
           title="Delete session" aria-label="Delete ${esc(x.title)}">&#128465;</button>
       </div>
@@ -1875,7 +2064,9 @@ function adminContent() {
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px">${source} ${uploader}</div>
           <input type="text" class="session-edit-input" data-action="session-video"
             data-id="${x.id}" value="${esc(x.videoUrl || '')}" placeholder="YouTube / Vimeo embed URL" />
-          ${qz.length ? `<label class="sc-label" style="margin-top:10px">Tests</label>
+          ${
+            qz.length
+              ? `<label class="sc-label" style="margin-top:10px">Tests</label>
           <div class="quiz-live-list">
             ${qz
               .map(
@@ -1889,17 +2080,20 @@ function adminContent() {
             </div>`
               )
               .join('')}
-          </div>` : ''}
+          </div>`
+              : ''
+          }
         </div>
       </div>
     </div>`;
-  }).join('');
+    })
+    .join('');
 
   return `
   <div class="page-head">
     <div>
       <h1>Class Sessions</h1>
-      <p class="muted">Recordings, notes &amp; linked tests &middot; ${sessions.length} published</p>
+      <p class="muted">Release weeks to students · ${publishedSessions} of ${sessions.length} session${sessions.length === 1 ? '' : 's'} published</p>
     </div>
     <div class="head-actions">
       <button class="btn btn-primary" data-action="add-session">+ Add Session</button>
@@ -1908,27 +2102,38 @@ function adminContent() {
 
   <section class="panel">
     <div class="panel-head">
+      <h2>Release to students</h2>
+      <span class="muted" style="font-size:0.84rem">Curriculum + sessions + tests per week</span>
+    </div>
+    <p class="hint" style="margin-top:0">Use <strong>Publish Week N to students</strong> when a week is ready. Students only see published sessions, live tests, and published curriculum weeks.</p>
+    <div class="week-release-list-wrap">
+      ${releaseCards || '<p class="muted">Add a curriculum week or session to start releasing content.</p>'}
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
       <h2>Live Class &mdash; Google Meet</h2>
       <span class="muted" style="font-size:0.84rem">One link per week &middot; shared across all sessions in that week</span>
     </div>
     <div class="week-meet-list">
-      ${meetBlocks}
+      ${meetBlocks || '<p class="muted">No weeks yet.</p>'}
     </div>
-    <p class="hint">Create the Meet link in Google Calendar for proper host controls. Students see a "Join Live Class" button on every session card for that week.</p>
+    <p class="hint">Create the Meet link in Google Calendar for proper host controls. Students see a "Join Live Class" button on every published session card for that week.</p>
   </section>
 
   <section class="panel">
     <div class="panel-head">
       <h2>Sessions</h2>
-      <span class="muted" style="font-size:0.84rem">Click any field to edit &middot; changes save automatically</span>
+      <span class="muted" style="font-size:0.84rem">Edit fields · publish individually · changes save automatically</span>
     </div>
     <div class="session-cards">
-      ${sessionCards}
+      ${sessionCards || '<p class="muted">No sessions yet. Add one to get started.</p>'}
     </div>
     <p class="hint">${
       USE_SUPABASE
-        ? 'Upload a recording (MP4) to host it privately in Supabase Storage. Or keep using YouTube/Vimeo embed URLs.'
-        : 'Connect Supabase to upload and host videos. In demo mode, sessions use embedded sample videos.'
+        ? 'Upload a recording (MP4) to host it privately in Supabase Storage. Or keep using YouTube/Vimeo embed URLs. New sessions start hidden until you publish.'
+        : 'Connect Supabase to upload and host videos. In demo mode, sessions use embedded sample videos. New sessions start hidden until you publish.'
     }</p>
   </section>
 
@@ -2434,6 +2639,21 @@ app.addEventListener('click', async (e) => {
       toast(`Week ${wk} saved ✓`);
       break;
     }
+    case 'toggle-curric-week-publish': {
+      const wk = Number(d.week);
+      const week = (store.getCurriculum().weeks || []).find((x) => Number(x.week) === wk);
+      if (!week) break;
+      const willPublish = !!week.pending; // pending true → publish (pending false)
+      curricOpenWeek = wk;
+      store.updateCurriculumWeek(wk, { pending: !willPublish });
+      toast(
+        willPublish
+          ? `Week ${wk} published to students ✓`
+          : `Week ${wk} unpublished — students see “coming soon”`
+      );
+      render();
+      break;
+    }
     case 'add-curric-week': {
       curricEditing = true;
       const n = store.addCurriculumWeek();
@@ -2528,6 +2748,29 @@ app.addEventListener('click', async (e) => {
       if (!q) break;
       store.setQuizPublished(q.id, !q.published);
       toast(q.published ? 'Test taken offline' : 'Test is now live for students ✓');
+      render();
+      break;
+    }
+    case 'toggle-session-publish': {
+      const s = store.getSessionById(d.id);
+      if (!s) break;
+      const next = s.published === false;
+      store.setSessionPublished(s.id, next);
+      toast(next ? `“${s.title}” published to students ✓` : `“${s.title}” unpublished`);
+      render();
+      break;
+    }
+    case 'publish-week': {
+      const wk = Number(d.week);
+      const publish = d.publish !== '0' && d.publish !== 'false';
+      const res = store.setWeekPublished(wk, publish);
+      if (publish) {
+        toast(
+          `Week ${wk} published · syllabus${res.curriculum ? '' : ' (n/a)'} · ${res.sessions} session${res.sessions === 1 ? '' : 's'} · ${res.quizzes} test${res.quizzes === 1 ? '' : 's'} ✓`
+        );
+      } else {
+        toast(`Week ${wk} unpublished for students`);
+      }
       render();
       break;
     }

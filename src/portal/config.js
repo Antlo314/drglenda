@@ -17,7 +17,8 @@ export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 export const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
 /**
- * Temporarily hide the recorded Class Sessions from students (admins still see
- * and manage them). Flip to `false` and redeploy to unlock for everyone.
+ * Hard lock: hide ALL recorded Class Sessions from students (admins still manage
+ * them). Prefer per-session / per-week Publish controls in the portal instead.
+ * Keep `false` so teachers can release weeks from Sessions & Curriculum.
  */
-export const SESSIONS_LOCKED = true;
+export const SESSIONS_LOCKED = false;

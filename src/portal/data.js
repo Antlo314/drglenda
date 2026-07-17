@@ -93,13 +93,14 @@ export const SEED = {
     { id: 'u-destiny', role: 'student', name: 'Destiny Hughes', email: 'destiny@umof.org', password: 'demo1234', phone: '(470) 555-0190', cohort: 'Summer 2026', enrolled: '2026-06-16', plan: 'Scholarship', grantAwarded: true, grantAmount: 300 },
   ],
 
-  // ---- Class sessions (the 12-week Funding Masterclass; 6 published so far) --
+  // ---- Class sessions (the 12-week Funding Masterclass; Week 1 published) --
   sessions: [
     {
       id: 's1', week: 1, title: 'Foundations of Funding Readiness',
       date: '2026-07-06', durationMin: 58, thumb: '/assets/edu-1.png',
       videoUrl: 'https://www.youtube.com/embed/ScMzIvxBSi4',
       meetUrl: 'https://meet.google.com/lookup/umof-funding-week1', liveAt: '2026-07-06T18:00',
+      published: true,
       summary: 'What lenders and funders actually look for, and how to assess where your business stands today.',
       notes: [
         'The 5 C’s of credit: Character, Capacity, Capital, Collateral, Conditions.',
@@ -112,6 +113,7 @@ export const SEED = {
       id: 's2', week: 1, title: 'Business Credit & Entity Structure',
       date: '2026-07-06', durationMin: 64, thumb: '/assets/edu-2.png',
       videoUrl: 'https://www.youtube.com/embed/ScMzIvxBSi4',
+      published: true,
       summary: 'Choosing the right entity, establishing an EIN, and building business credit separate from your personal score.',
       notes: [
         'LLC vs. S-Corp vs. C-Corp — tax and liability trade-offs.',
@@ -124,6 +126,7 @@ export const SEED = {
       id: 's3', week: 1, title: 'Bookkeeping, Financials & Cash Flow',
       date: '2026-07-06', durationMin: 61, thumb: '/assets/edu-3.png',
       videoUrl: 'https://www.youtube.com/embed/ScMzIvxBSi4',
+      published: true,
       summary: 'Reading the three core financial statements and keeping books a funder will trust.',
       notes: [
         'Profit & Loss, Balance Sheet, and Cash Flow Statement — what each one tells a lender.',
@@ -136,6 +139,7 @@ export const SEED = {
       id: 's4', week: 1, title: 'Building a Fundable Business Plan',
       date: '2026-07-06', durationMin: 72, thumb: '/assets/edu-4.webp',
       videoUrl: 'https://www.youtube.com/embed/ScMzIvxBSi4',
+      published: true,
       summary: 'Translating your vision into a lender-ready plan with a defensible use-of-funds.',
       notes: [
         'Executive summary first — most reviewers decide here.',
@@ -148,6 +152,7 @@ export const SEED = {
       id: 's5', week: 1, title: 'Grants, Loans & Investor Capital',
       date: '2026-07-06', durationMin: 67, thumb: '/assets/edu-1.png',
       videoUrl: 'https://www.youtube.com/embed/ScMzIvxBSi4',
+      published: true,
       summary: 'Mapping the full capital landscape and matching the right source to your stage and need.',
       notes: [
         'Grants (non-dilutive) vs. debt (loans) vs. equity (investors).',
@@ -160,6 +165,7 @@ export const SEED = {
       id: 's6', week: 1, title: 'The Funding Pitch & Lender Relationships',
       date: '2026-07-06', durationMin: 69, thumb: '/assets/edu-2.png',
       videoUrl: 'https://www.youtube.com/embed/ScMzIvxBSi4',
+      published: true,
       summary: 'Delivering a confident pitch, anticipating underwriter questions, and building lasting funder relationships.',
       notes: [
         'Lead with the number, the use, and the repayment story.',

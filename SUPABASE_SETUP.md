@@ -62,6 +62,14 @@ own content; you see the full dashboard, grading queue, and live CRM.
 
 ---
 
+## Session publish flag (recommended)
+
+If your project was created **before** per-session publish existed, run
+[`supabase/sessions-publish.sql`](supabase/sessions-publish.sql) once in the SQL Editor.
+That adds `sessions.published` so teachers can release recordings week-by-week from the
+portal (Sessions → **Release to students**). Existing sessions stay visible; new ones
+start hidden until published.
+
 ## Grade fields (optional migration)
 
 If your project was created **before** grade documentation columns existed, run

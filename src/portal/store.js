@@ -50,6 +50,13 @@ function loadLocal() {
         parsed.curriculum = defaultCurriculum();
         dirty = true;
       }
+      // Migration: sessions need a published flag (default true for existing demo rows)
+      if (parsed.sessions?.some((s) => s.published === undefined)) {
+        parsed.sessions = parsed.sessions.map((s) =>
+          s.published === undefined ? { ...s, published: true } : s
+        );
+        dirty = true;
+      }
       if (dirty) {
         try { localStorage.setItem(KEY, JSON.stringify(parsed)); } catch { /* ignore */ }
       }
@@ -147,6 +154,8 @@ const mapSession = (r) => {
     durationMin: r.duration_min, thumb: r.thumb, videoUrl: r.video_url,
     summary: r.summary, notes: r.notes || [],
     meetUrl: r.meet_url || '', liveAt: r.live_at || '',
+    // Missing column (pre-migration) → treat as published so nothing vanishes
+    published: r.published !== false && r.published !== null,
     isFile,
     storagePath: isFile ? r.video_url.slice(STORAGE_PREFIX.length) : null,
     playUrl: '', // filled with a signed URL during hydrate
@@ -343,8 +352,13 @@ export const getStudents = () =>
     return hasWork;
   });
 export const getUserById = (id) => state.users.find((u) => u.id === id) || null;
-export const getSessions = () => [...state.sessions].sort((a, b) => a.week - b.week);
+export const getSessions = () => [...state.sessions].sort((a, b) => a.week - b.week || String(a.title).localeCompare(String(b.title)));
 export const getSessionById = (id) => state.sessions.find((s) => s.id === id) || null;
+/** Student-facing: only sessions an admin has published. */
+export const getVisibleSessions = () =>
+  getSessions().filter((s) => s.published !== false);
+export const getSessionsForWeek = (weekNum) =>
+  getSessions().filter((s) => Number(s.week) === Number(weekNum));
 
 /** Course syllabus (meta + weekly outline). Always returns a full object. */
 export function getCurriculum() {
@@ -378,9 +392,11 @@ export function getProgress(studentId) {
 }
 
 export function getStudentStats(studentId) {
-  const sessions = getSessions();
+  // Progress is measured against sessions students can actually access
+  const sessions = getVisibleSessions();
   const prog = getProgress(studentId);
-  const completed = prog.completed.length;
+  const sessionIds = new Set(sessions.map((s) => s.id));
+  const completed = (prog.completed || []).filter((id) => sessionIds.has(id)).length;
   const totalSessions = sessions.length;
   const subs = Object.values(prog.submissions || {});
   const graded = subs.filter((s) => s.status === 'graded' && typeof s.score === 'number');
@@ -679,6 +695,122 @@ export function setQuizPublished(quizId, published) {
   q.published = published;
   set(next);
   push(() => supabase.from('quizzes').update({ published }).eq('id', quizId));
+}
+
+/** Admin toggles a class session live/offline for students. */
+export function setSessionPublished(sessionId, published) {
+  const next = structuredClone(state);
+  const s = next.sessions.find((x) => x.id === sessionId);
+  if (!s) return;
+  s.published = !!published;
+  set(next);
+  push(() =>
+    supabase.from('sessions').update({ published: !!published }).eq('id', sessionId)
+  );
+}
+
+/**
+ * Release (or unrelease) everything for a curriculum week that students need:
+ * syllabus week, all sessions that week, and all linked tests.
+ * @param {number|string} weekNum
+ * @param {boolean} publish  true = go live, false = take offline
+ * @returns {{ week, curriculum, sessions, quizzes }}
+ */
+export function setWeekPublished(weekNum, publish) {
+  const wNum = Number(weekNum);
+  const next = structuredClone(state);
+  const c = (next.curriculum ??= defaultCurriculum());
+  const week = c.weeks.find((x) => Number(x.week) === wNum);
+  let curriculumTouched = false;
+  if (week) {
+    week.pending = !publish;
+    if (publish) {
+      week.objectives ??= [];
+      week.steps ??= [];
+      week.quiz ??= [];
+      week.assignment ??= '';
+      week.discussion ??= '';
+    }
+    curriculumTouched = true;
+  }
+
+  const sessionIds = [];
+  for (const s of next.sessions) {
+    if (Number(s.week) === wNum) {
+      s.published = !!publish;
+      sessionIds.push(s.id);
+    }
+  }
+
+  const quizIds = [];
+  for (const q of next.quizzes) {
+    const sx = next.sessions.find((s) => s.id === q.sessionId);
+    // Match by linked session week, or by "Week N" in title as fallback
+    const bySession = sx && Number(sx.week) === wNum;
+    const byTitle = new RegExp(`\\bweek\\s*${wNum}\\b`, 'i').test(q.title || '');
+    if (bySession || byTitle) {
+      q.published = !!publish;
+      quizIds.push(q.id);
+    }
+  }
+
+  set(next);
+
+  if (curriculumTouched) persistCurriculum(c);
+  for (const id of sessionIds) {
+    push(() => supabase.from('sessions').update({ published: !!publish }).eq('id', id));
+  }
+  for (const id of quizIds) {
+    push(() => supabase.from('quizzes').update({ published: !!publish }).eq('id', id));
+  }
+
+  return {
+    week: wNum,
+    curriculum: curriculumTouched,
+    sessions: sessionIds.length,
+    quizzes: quizIds.length,
+  };
+}
+
+/** Snapshot of publish state for one week (admin release hub). */
+export function getWeekReleaseStatus(weekNum) {
+  const wNum = Number(weekNum);
+  const c = getCurriculum();
+  const week = (c.weeks || []).find((x) => Number(x.week) === wNum) || null;
+  const sessions = getSessionsForWeek(wNum);
+  const quizzes = state.quizzes.filter((q) => {
+    const sx = getSessionById(q.sessionId);
+    if (sx && Number(sx.week) === wNum) return true;
+    return new RegExp(`\\bweek\\s*${wNum}\\b`, 'i').test(q.title || '');
+  });
+  return {
+    week: wNum,
+    title: week?.title || (sessions[0]?.title ? `Week ${wNum}` : `Week ${wNum}`),
+    curriculum: week
+      ? { exists: true, published: !week.pending, pending: !!week.pending, title: week.title }
+      : { exists: false, published: false, pending: true, title: '' },
+    sessions: sessions.map((s) => ({
+      id: s.id,
+      title: s.title,
+      published: s.published !== false,
+    })),
+    quizzes: quizzes.map((q) => ({
+      id: q.id,
+      title: q.title,
+      published: !!q.published,
+      due: q.due,
+    })),
+    allPublished:
+      !!week &&
+      !week.pending &&
+      sessions.every((s) => s.published !== false) &&
+      quizzes.every((q) => q.published) &&
+      (sessions.length > 0 || quizzes.length > 0 || !week.pending),
+    anyPublished:
+      (week && !week.pending) ||
+      sessions.some((s) => s.published !== false) ||
+      quizzes.some((q) => q.published),
+  };
 }
 
 /**
@@ -1168,6 +1300,7 @@ export function updateSession(sessionId, updates) {
   if (updates.videoUrl !== undefined) s.videoUrl = updates.videoUrl.trim();
   if (updates.meetUrl !== undefined) s.meetUrl = updates.meetUrl.trim();
   if (updates.liveAt !== undefined) s.liveAt = updates.liveAt;
+  if (updates.published !== undefined) s.published = !!updates.published;
   if (updates.notes !== undefined) {
     s.notes = Array.isArray(updates.notes)
       ? updates.notes
@@ -1188,6 +1321,7 @@ export function updateSession(sessionId, updates) {
         meet_url: s.meetUrl || null,
         live_at: s.liveAt || null,
         notes: s.notes,
+        published: s.published !== false,
       })
       .eq('id', sessionId)
   );
@@ -1209,6 +1343,7 @@ export function addSession() {
     liveAt: '',
     summary: 'New session summary.',
     notes: [],
+    published: false, // hidden from students until Publish
   };
   next.sessions.push(newSession);
   set(next);
@@ -1228,6 +1363,7 @@ export function addSession() {
         live_at: newSession.liveAt || null,
         summary: newSession.summary,
         notes: newSession.notes,
+        published: false,
       })
   );
 }

@@ -57,8 +57,11 @@ create table if not exists public.sessions (
   thumb        text,
   video_url    text,
   summary      text,
-  notes        jsonb default '[]'::jsonb
+  notes        jsonb default '[]'::jsonb,
+  published    boolean not null default false  -- false until admin publishes to students
 );
+-- for existing databases created before this column:
+alter table public.sessions add column if not exists published boolean not null default true;
 alter table public.sessions enable row level security;
 drop policy if exists "sessions read" on public.sessions;
 drop policy if exists "sessions admin write" on public.sessions;
