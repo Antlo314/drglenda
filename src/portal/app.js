@@ -131,6 +131,30 @@ function hideConnBanner() {
   document.getElementById('connBanner')?.classList.remove('show');
 }
 
+/** Site-wide “report glitches” bar for portal (main site has its own in index.html). */
+const FEEDBACK_DISMISS_KEY = 'umof_feedback_bar_dismissed';
+function isFeedbackBarDismissed() {
+  try {
+    return localStorage.getItem(FEEDBACK_DISMISS_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function siteFeedbackBarHtml() {
+  if (isFeedbackBarDismissed()) return '';
+  return `<div class="site-feedback-bar" id="siteFeedbackBar" role="region" aria-label="Report issues">
+    <div class="site-feedback-inner">
+      <p class="site-feedback-text">
+        <span class="site-feedback-ico" aria-hidden="true">!</span>
+        Notice any glitches or bugs?
+        <a href="mailto:admin@umof.org?subject=UMOF%20portal%20feedback%20%2F%20bug%20report">Email admin@umof.org</a>
+        and we&rsquo;ll fix it.
+      </p>
+      <button type="button" class="site-feedback-dismiss" data-action="dismiss-feedback" aria-label="Dismiss feedback notice">Dismiss</button>
+    </div>
+  </div>`;
+}
+
 /* ---- app state ------------------------------------------------------------ */
 let route = { name: null, params: {} };
 let crm = { view: 'leads', q: '', status: 'all', adding: false, editingId: null, notesOpen: new Set() };
@@ -511,6 +535,7 @@ function shell(user, navItems, content) {
     .join('');
 
   return `
+  ${siteFeedbackBarHtml()}
   <div class="portal-shell">
     <div class="side-scrim" data-action="close-side" aria-hidden="true"></div>
     <aside class="portal-side" id="portalSide" aria-label="Main navigation">
@@ -2557,20 +2582,20 @@ function render() {
 
   // Hydrate failed after a valid session — dedicated recovery UI.
   if (portalLoadError && currentUser()) {
-    app.innerHTML = loadErrorShell(portalLoadError);
+    app.innerHTML = siteFeedbackBarHtml() + loadErrorShell(portalLoadError);
     return;
   }
 
   // Arrived via a password-reset link — force the "set new password" screen.
   if (recoveryMode) {
-    app.innerHTML = viewReset();
+    app.innerHTML = siteFeedbackBarHtml() + viewReset();
     focusAuthField();
     return;
   }
 
   const user = currentUser();
   if (!user) {
-    app.innerHTML = renderAuthScreen();
+    app.innerHTML = siteFeedbackBarHtml() + renderAuthScreen();
     focusAuthField();
     return;
   }
@@ -2838,6 +2863,15 @@ app.addEventListener('click', async (e) => {
     case 'dismiss-banner':
       hideConnBanner();
       break;
+    case 'dismiss-feedback': {
+      try {
+        localStorage.setItem(FEEDBACK_DISMISS_KEY, '1');
+      } catch {
+        /* ignore */
+      }
+      document.getElementById('siteFeedbackBar')?.remove();
+      break;
+    }
     case 'toggle-pw': {
       const wrap = node.closest('.pw-wrap');
       const input = wrap?.querySelector('input');

@@ -4,6 +4,30 @@ import { supabase } from './portal/supabase.js';
 import { USE_SUPABASE } from './portal/config.js';
 
 /* -------------------------------------------------------------------------
+   Site-wide feedback bar (report glitches → admin@umof.org)
+   ------------------------------------------------------------------------- */
+const FEEDBACK_DISMISS_KEY = 'umof_feedback_bar_dismissed';
+const feedbackBar = document.getElementById('siteFeedbackBar');
+const feedbackDismiss = document.getElementById('siteFeedbackDismiss');
+if (feedbackBar) {
+  try {
+    if (localStorage.getItem(FEEDBACK_DISMISS_KEY) === '1') {
+      feedbackBar.hidden = true;
+    }
+  } catch {
+    /* storage blocked */
+  }
+  feedbackDismiss?.addEventListener('click', () => {
+    feedbackBar.hidden = true;
+    try {
+      localStorage.setItem(FEEDBACK_DISMISS_KEY, '1');
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
+/* -------------------------------------------------------------------------
    Sticky header shadow on scroll
    ------------------------------------------------------------------------- */
 const header = document.getElementById('header');
