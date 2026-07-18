@@ -2583,8 +2583,8 @@ function adminWeeklyTestsPanel() {
       <span class="muted" style="font-size:0.84rem">Students answer under My Tests · you grade under Grading</span>
     </div>
     <p class="hint" style="margin-top:0">
-      Write free-response questions (one per line). Link to a week, then
-      <strong>Publish to students</strong> when ready — offline tests stay hidden under My Tests.
+      Write free-response questions (one per line). Students only see tests marked
+      <strong>● Live</strong> under <strong>My Tests</strong>. Offline tests are hidden from students.
     </p>
 
     <form id="createTestForm" class="create-test-form" data-edit-id="${editing ? esc(editing.id) : ''}">
@@ -2615,22 +2615,12 @@ function adminWeeklyTestsPanel() {
         </label>
       </div>
       <div class="create-test-actions">
-        ${
-          editing
-            ? ''
-            : `<label class="check-inline">
-          <input type="checkbox" name="publishNow" ${editing?.published ? 'checked' : ''} />
-          <span>Publish to students immediately</span>
-        </label>`
-        }
-        ${
-          editing
-            ? `<label class="check-inline">
-          <input type="checkbox" name="publishNow" ${editing.published ? 'checked' : ''} />
-          <span>Published (live on My Tests)</span>
-        </label>`
-            : ''
-        }
+        <label class="check-inline">
+          <input type="checkbox" name="publishNow" ${
+            editing ? (editing.published ? 'checked' : '') : 'checked'
+          } />
+          <span>${editing ? 'Published (live on My Tests)' : 'Publish to students (show under My Tests)'}</span>
+        </label>
         ${
           editing
             ? `<button type="button" class="btn btn-outline" data-action="cancel-edit-quiz">Cancel</button>
@@ -3326,8 +3316,16 @@ app.addEventListener('click', async (e) => {
       const q = store.getQuizById(d.id);
       if (!q) break;
       const goingLive = !q.published;
-      store.setQuizPublished(q.id, goingLive);
-      toast(goingLive ? 'Test is now live for students ✓' : 'Test taken offline');
+      const res = await store.setQuizPublished(q.id, goingLive);
+      if (!res?.ok) {
+        toast(res?.error || 'Could not update publish state — try again');
+        break;
+      }
+      toast(
+        goingLive
+          ? 'Test is now live — students see it under My Tests ✓'
+          : 'Test taken offline — hidden from students'
+      );
       render();
       break;
     }

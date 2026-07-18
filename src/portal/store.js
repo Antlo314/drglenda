@@ -824,14 +824,26 @@ export async function submitWritten(studentId, quizId, answers, submittedAt) {
   return { ok: true, submittedAt: at };
 }
 
-/** Admin toggles a test live/offline (the "Go live" button on Sessions). */
-export function setQuizPublished(quizId, published) {
+/** Admin toggles a test live/offline (the "Go live" / "Publish to students" button). */
+export async function setQuizPublished(quizId, published) {
   const next = structuredClone(state);
   const q = next.quizzes.find((x) => x.id === quizId);
   if (!q) return { ok: false, error: 'Test not found' };
+  const prev = !!q.published;
   q.published = !!published;
   set(next);
-  push(() => supabase.from('quizzes').update({ published: !!published }).eq('id', quizId));
+  const saved = await writeThrough(() =>
+    supabase.from('quizzes').update({ published: !!published }).eq('id', quizId)
+  );
+  if (!saved.ok) {
+    if (USE_SUPABASE) {
+      const roll = structuredClone(state);
+      const rq = roll.quizzes.find((x) => x.id === quizId);
+      if (rq) rq.published = prev;
+      set(roll);
+    }
+    return { ok: false, error: saved.error || 'Could not update publish state' };
+  }
   return { ok: true };
 }
 
