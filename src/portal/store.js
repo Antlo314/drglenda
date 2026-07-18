@@ -570,6 +570,120 @@ export function getProgress(studentId) {
   return state.progress[studentId] || { completed: [], submissions: {} };
 }
 
+/**
+ * Whether a submission still counts for this quiz’s current questions.
+ * Stale rows (wrong question ids / empty answers after a test rewrite) are ignored
+ * so students get a blank form instead of “Submitted” with old/wrong answers.
+ */
+export function submissionAppliesToQuiz(sub, quiz) {
+  if (!sub || !quiz) return false;
+  if (sub.status !== 'submitted' && sub.status !== 'graded') return false;
+
+  const qs = normalizeQuestions(quiz.id, quiz.questions || []);
+  const isMc =
+    quiz.type === 'auto' ||
+    qs.some((qq) => Array.isArray(qq.options) && qq.options.length > 0);
+
+  if (isMc || quiz.type === 'auto') {
+    // Auto: need answers object keyed by current question ids (or any graded score)
+    if (sub.status === 'graded' && sub.score != null) return true;
+    const answers = sub.answers && typeof sub.answers === 'object' ? sub.answers : {};
+    return qs.some((qq) => answers[qq.id] !== undefined && answers[qq.id] !== null);
+  }
+
+  // Free-response written test
+  const answers = sub.answers && typeof sub.answers === 'object' && !Array.isArray(sub.answers)
+    ? sub.answers
+    : {};
+  const hasWritten = qs.some((qq) => {
+    const v = answers[qq.id];
+    return v != null && String(v).trim() !== '';
+  });
+  if (hasWritten) return true;
+  // Single-prompt manual assignment
+  if (sub.answer != null && String(sub.answer).trim() !== '') return true;
+  return false;
+}
+
+/** Student-facing submission for a quiz, or null if not started / stale. */
+export function getStudentSubmission(studentId, quizId) {
+  const quiz = getQuizById(quizId);
+  const sub = getProgress(studentId).submissions?.[quizId];
+  if (!quiz || !sub) return null;
+  return submissionAppliesToQuiz(sub, quiz) ? sub : null;
+}
+
+/**
+ * Admin: delete a student’s submission so they get a blank form again.
+ * Also clears any matching local demo progress.
+ */
+export async function clearSubmission(studentId, quizId) {
+  if (!studentId || !quizId) return { ok: false, error: 'Missing student or test' };
+  const previous = state.progress[studentId]?.submissions?.[quizId]
+    ? structuredClone(state.progress[studentId].submissions[quizId])
+    : undefined;
+  const next = structuredClone(state);
+  next.progress[studentId] ??= { completed: [], submissions: {} };
+  const had = previous !== undefined;
+  delete next.progress[studentId].submissions[quizId];
+  set(next);
+
+  const saved = await writeThrough(() =>
+    supabase
+      .from('submissions')
+      .delete()
+      .eq('profile_id', studentId)
+      .eq('quiz_id', quizId)
+  );
+  if (!saved.ok && USE_SUPABASE) {
+    restoreSubmission(studentId, quizId, previous);
+    return {
+      ok: false,
+      error:
+        saved.error ||
+        'Could not delete submission. Run supabase/admin-delete-submissions.sql in Supabase, then try again.',
+    };
+  }
+  return { ok: true, cleared: had };
+}
+
+/** Admin: clear every student’s work for one test (all get blank forms again). */
+export async function clearAllSubmissionsForQuiz(quizId) {
+  if (!quizId) return { ok: false, error: 'Missing test id', count: 0 };
+  const snapshot = {};
+  for (const pid of Object.keys(state.progress || {})) {
+    if (state.progress[pid]?.submissions?.[quizId]) {
+      snapshot[pid] = structuredClone(state.progress[pid].submissions[quizId]);
+    }
+  }
+  const next = structuredClone(state);
+  let count = Object.keys(snapshot).length;
+  for (const pid of Object.keys(snapshot)) {
+    delete next.progress[pid].submissions[quizId];
+  }
+  set(next);
+
+  const saved = await writeThrough(() =>
+    supabase.from('submissions').delete().eq('quiz_id', quizId)
+  );
+  if (!saved.ok && USE_SUPABASE) {
+    const roll = structuredClone(state);
+    for (const [pid, sub] of Object.entries(snapshot)) {
+      roll.progress[pid] ??= { completed: [], submissions: {} };
+      roll.progress[pid].submissions[quizId] = sub;
+    }
+    set(roll);
+    return {
+      ok: false,
+      error:
+        saved.error ||
+        'Could not clear submissions. Run supabase/admin-delete-submissions.sql in Supabase SQL Editor.',
+      count: 0,
+    };
+  }
+  return { ok: true, count };
+}
+
 export function getStudentStats(studentId) {
   // Progress is measured against sessions students can actually access
   const sessions = getVisibleSessions();

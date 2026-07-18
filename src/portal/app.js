@@ -1499,8 +1499,8 @@ function quizView(user) {
     <section class="panel"><p class="muted">This test isn’t open yet. Your instructor will make it available when the class is ready.</p></section>`;
   }
   const written = isWritten(q);
-  // Only this student's own submission (never pre-fill from another student)
-  const sub = store.getProgress(user.id).submissions?.[q.id] || null;
+  // Only this student's own *valid* submission (stale/empty rows → blank form)
+  const sub = store.getStudentSubmission(user.id, q.id);
   const sx = store.getSessionById(q.sessionId);
   const kind = q.type === 'auto' ? 'Quiz' : written ? 'Test' : 'Assignment';
   const back =
@@ -1653,7 +1653,6 @@ function quizView(user) {
 }
 
 function studentTests(user) {
-  const prog = store.getProgress(user.id);
   const quizzes = store.getVisibleQuizzes();
   if (!quizzes.length) {
     return `
@@ -1670,7 +1669,7 @@ function studentTests(user) {
       <p class="muted">Your instructor publishes each test when the class is ready. Check back soon.</p></div></section>`;
   }
   const rows = quizzes.map((q) => {
-    const sub = prog.submissions?.[q.id];
+    const sub = store.getStudentSubmission(user.id, q.id);
     const status = !sub
       ? '<span class="pill pill-todo">Open — not started</span>'
       : sub.status === 'graded'
@@ -1970,8 +1969,11 @@ function adminStudentDetail() {
           ${(() => {
             const catalogIds = new Set(quizzes.map((q) => q.id));
             const rows = quizzes.map((q) => {
-              const sub = prog.submissions?.[q.id];
-              if (!sub) return `<tr><td>${esc(q.title)}</td><td><span class="pill pill-todo">Not started</span></td><td>—</td><td></td></tr>`;
+              const sub = store.getStudentSubmission(s.id, q.id);
+              if (!sub) {
+                return `<tr><td>${esc(q.title)}</td><td><span class="pill pill-todo">Not started</span></td><td>—</td>
+                  <td></td></tr>`;
+              }
               const status =
                 sub.status === 'graded'
                   ? `<span class="pill pill-done">Graded</span>`
@@ -1983,6 +1985,7 @@ function adminStudentDetail() {
               } else if (sub.status === 'submitted') {
                 action = `<button class="btn btn-primary btn-sm" data-action="go" data-route="grade" data-student="${s.id}" data-quiz="${q.id}">Grade →</button>`;
               }
+              action += ` <button class="btn btn-ghost btn-sm" data-action="clear-submission" data-student="${s.id}" data-quiz="${q.id}" title="Clear so student gets a blank form">Reset</button>`;
               return `<tr><td><strong>${esc(q.title)}</strong></td><td>${status}</td><td>${score}</td><td>${action}</td></tr>`;
             });
             // Submissions whose quiz id is no longer in the catalog still need to show.
@@ -2588,6 +2591,9 @@ function adminWeeklyTestsPanel() {
               data-action="toggle-quiz-live" data-id="${q.id}">
               ${q.published ? 'Take offline' : 'Publish to students'}
             </button>
+            <button type="button" class="btn btn-sm btn-outline"
+              data-action="clear-quiz-subs" data-id="${q.id}"
+              title="Remove all student answers so everyone gets a blank form again">Reset answers</button>
             <button type="button" class="btn btn-sm btn-outline btn-danger-outline"
               data-action="delete-quiz" data-id="${q.id}" title="Delete test">Delete</button>
           </div>`;
@@ -2603,7 +2609,8 @@ function adminWeeklyTestsPanel() {
     </div>
     <p class="hint" style="margin-top:0">
       Write free-response questions (one per line). Students only see tests marked
-      <strong>● Live</strong> under <strong>My Tests</strong>. Offline tests are hidden from students.
+      <strong>● Live</strong> under <strong>My Tests</strong> — answer boxes start <strong>blank</strong>
+      until they submit. Use <strong>Reset answers</strong> to wipe old submissions so students can start over.
     </p>
 
     <form id="createTestForm" class="create-test-form" data-edit-id="${editing ? esc(editing.id) : ''}">
@@ -3353,6 +3360,52 @@ app.addEventListener('click', async (e) => {
       if (!user || !d.quiz) break;
       clearQuizDraft(user.id, d.quiz);
       toast('Draft cleared — answer boxes are blank');
+      render();
+      break;
+    }
+    case 'clear-quiz-subs': {
+      const q = store.getQuizById(d.id);
+      if (!q) break;
+      if (
+        !confirm(
+          `Clear ALL student answers for “${q.title}”?\n\nEvery student will get a blank form again. This cannot be undone.`
+        )
+      ) {
+        break;
+      }
+      const res = await store.clearAllSubmissionsForQuiz(q.id);
+      if (!res.ok) {
+        toast(res.error || 'Could not clear submissions');
+        break;
+      }
+      toast(
+        res.count
+          ? `Cleared ${res.count} submission${res.count === 1 ? '' : 's'} — students see blank forms ✓`
+          : 'No student submissions found for this test (already blank)'
+      );
+      render();
+      break;
+    }
+    case 'clear-submission': {
+      const studentId = d.student;
+      const quizId = d.quiz;
+      if (!studentId || !quizId) break;
+      const stu = store.getUserById(studentId);
+      const q = store.getQuizById(quizId);
+      if (
+        !confirm(
+          `Reset “${q?.title || quizId}” for ${stu?.name || 'this student'}?\n\nThey will get a blank form and can submit again.`
+        )
+      ) {
+        break;
+      }
+      const res = await store.clearSubmission(studentId, quizId);
+      if (!res.ok) {
+        toast(res.error || 'Could not reset submission');
+        break;
+      }
+      clearQuizDraft(studentId, quizId);
+      toast('Submission cleared — student gets a blank form ✓');
       render();
       break;
     }
