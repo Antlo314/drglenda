@@ -54,7 +54,14 @@ insert into public.quizzes (id, session_id, type, title, max_score, prompt, ques
    {"id":"qw1-9","prompt":"What are your operational goals?"},
    {"id":"qw1-10","prompt":"What are your marketing goals?"},
    {"id":"qw1-11","prompt":"Write a vision statement for your business."},
-   {"id":"qw1-12","prompt":"Write a personal vision statement for yourself."}]', true, '2026-07-13')
+   {"id":"qw1-12","prompt":"Write a personal vision statement for yourself."}]', true, '2026-07-13'),
+('qw2',null,'manual','Week 2 Test — Business Structure & Legal Foundation',100,null,
+ '[{"id":"qw2-1","prompt":"What is the main liability difference between a sole proprietorship and an LLC?"},
+   {"id":"qw2-2","prompt":"Why do funders care whether personal and business finances are separated?"},
+   {"id":"qw2-3","prompt":"What is an EIN and when do you need one?"},
+   {"id":"qw2-4","prompt":"Name two documents that typically prove your business is legally established."},
+   {"id":"qw2-5","prompt":"What is one compliance or licensing step your business may need in your state or industry?"},
+   {"id":"qw2-6","prompt":"List the three next legal/administrative steps you will complete for your entity this week."}]', true, '2026-07-20')
 on conflict (id) do update set
   session_id=excluded.session_id, type=excluded.type, title=excluded.title,
   max_score=excluded.max_score, prompt=excluded.prompt, questions=excluded.questions,

@@ -18,6 +18,8 @@ const app = document.getElementById('app');
 let curricOpenWeek = null;
 /** Admin curriculum page: view mode vs edit mode (Edit / Save / Delete). */
 let curricEditing = false;
+/** Admin Tests page: quiz id currently open in the edit form (null = create mode). */
+let editingQuizId = null;
 
 /** Ensure Dr. Glenda S. Williams is always shown with , CFWF. */
 function displayNameWithCfwf(name) {
@@ -683,10 +685,6 @@ function shell(user, navItems, content) {
   </div>`;
 }
 
-/* progress bar component */
-const bar = (pct) =>
-  `<div class="bar"><span style="width:${pct}%"></span></div>`;
-
 const statCard = (label, value, sub = '') => `
   <div class="stat">
     <div class="stat-val">${value}</div>
@@ -772,12 +770,39 @@ function weekBlock(w, open, { admin = false } = {}) {
     !w.assignment &&
     !w.discussion &&
     !w.quiz?.length;
+  // Graded work lives under My Tests; syllabus only links when a published test exists.
+  const weekTests = admin
+    ? store.getQuizzesForWeek(w.week)
+    : store.getVisibleQuizzesForWeek(w.week);
+  const testCta = (() => {
+    if (admin) {
+      const live = weekTests.filter((q) => q.published).length;
+      const total = weekTests.length;
+      if (!total) return '';
+      return `<div class="wk-sec"><h3>Weekly test (My Tests)</h3>
+        <p class="wk-callout wk-assign">
+          ${total} test${total === 1 ? '' : 's'} linked · ${live} live for students.
+          <button type="button" class="btn btn-ghost btn-sm" data-action="go" data-route="admin-tests">Manage Tests →</button>
+        </p>
+      </div>`;
+    }
+    const open = weekTests[0];
+    if (!open) return '';
+    return `<div class="wk-sec"><h3>Weekly test</h3>
+      <p class="wk-callout wk-assign">
+        Complete <strong>${esc(open.title)}</strong> under My Tests
+        ${open.due ? ` · due ${fmtDate(open.due)}` : ''}.
+        <button type="button" class="btn btn-primary btn-sm" data-action="go" data-route="quiz" data-id="${open.id}">Open test →</button>
+      </p>
+    </div>`;
+  })();
   const bodyInner = emptyPending
     ? `<p class="muted">No content yet — use <strong>Edit</strong> to add details, then publish to students.</p>`
     : `${section('Learning Objectives', list(w.objectives, false))}
       ${section('Assignment', w.assignment ? `<p class="wk-callout wk-assign">${esc(w.assignment)}</p>` : '')}
       ${section('Discussion Post', w.discussion ? `<p class="wk-callout wk-discuss">“${esc(w.discussion)}”</p>` : '')}
-      ${section('Weekly Quiz', list(w.quiz, true))}
+      ${section('Action plan', list(w.quiz, true))}
+      ${testCta}
       ${w.pending ? `<p class="muted curric-pending-note">This week is not visible to students yet.</p>` : ''}`;
 
   return `<details class="wk${w.pending ? ' wk-pending' : ''}${admin ? ' wk-admin' : ''}"${open ? ' open' : ''} data-week="${w.week}">
@@ -823,8 +848,8 @@ function weekEditor(w, open) {
         <textarea rows="2" placeholder="What motivated you to become an entrepreneur?"
           data-action="curric-week-discussion" data-week="${wk}">${esc(w.discussion || '')}</textarea>
       </label>
-      <label class="field"><span>Weekly quiz questions <em class="muted">(one per line)</em></span>
-        <textarea rows="6" placeholder="What is a growth mindset?&#10;Why is goal setting important in business?"
+      <label class="field"><span>Action plan <em class="muted">(one per line)</em></span>
+        <textarea rows="6" placeholder="Complete the self-assessment worksheet.&#10;Draft your business vision statement."
           data-action="curric-week-quiz" data-week="${wk}">${esc(linesText(w.quiz))}</textarea>
       </label>
       <div class="curric-edit-actions">
@@ -871,9 +896,9 @@ function curriculumView(user) {
     helpId: 'student-curriculum',
     helpTitle: 'How to use Curriculum',
     helpSteps: [
-      'Click a week to expand objectives, assignment, and discussion.',
+      'Click a week to expand objectives, assignment, discussion, and action plan.',
       'Weeks marked “coming soon” are not published yet — check back later.',
-      'After reading the week, complete any live work under <strong>My Tests</strong>.',
+      'Open <strong>My Tests</strong> to answer and submit graded tests when they are live.',
     ],
   })}
   ${syllabusOverview}
@@ -894,7 +919,8 @@ function curriculumView(user) {
     helpSteps: [
       'Expand a week to review what students will see.',
       'Use <strong>Publish to students</strong> (or <strong>Publish entire week</strong>) when the week is ready.',
-      'Click <strong>Edit</strong> to change titles, objectives, assignments, and quiz prompts.',
+      'Click <strong>Edit</strong> to change titles, objectives, assignments, discussion, and action plan.',
+      'Create graded tests under <strong>Tests</strong> so students can answer under My Tests.',
       'Unpublished weeks show as “coming soon” for students.',
     ],
     actions: `<button type="button" class="btn btn-primary" data-action="curric-edit">Edit</button>`,
@@ -914,8 +940,9 @@ function curriculumView(user) {
     helpTitle: 'Editing tips',
     helpSteps: [
       'Change the course overview fields, then click <strong>Save</strong>.',
-      'Edit each week’s title, objectives, assignment, discussion, and quiz lines.',
+      'Edit each week’s title, objectives, assignment, discussion, and action plan.',
       'Use <strong>Publish to students</strong> on a week when content is ready.',
+      'Create graded tests under <strong>Tests</strong> (not here).',
       'Add or delete weeks only when restructuring the full program.',
     ],
     actions: `
@@ -1275,10 +1302,10 @@ function studentHome(user) {
     ${statCard('Results pending', s.pendingGrading)}
     ${statCard('Tests taken', s.quizzesTaken)}
     ${statCard('Next step', 'Curriculum', `<button class="link-arrow" data-action="go" data-route="curriculum">Open syllabus →</button>`)}`
-        : `${statCard('Course progress', `${s.completionPct}%`, bar(s.completionPct))}
-    ${statCard('Sessions completed', `${s.completed}/${s.totalSessions}`)}
+        : `${statCard('Sessions completed', `${s.completed}/${s.totalSessions}`)}
     ${statCard('Average test score', avg)}
-    ${statCard('Results pending', s.pendingGrading)}`
+    ${statCard('Results pending', s.pendingGrading)}
+    ${statCard('Tests taken', s.quizzesTaken)}`
     }
   </div>
 
@@ -1470,8 +1497,15 @@ function quizView(user) {
   const sub = store.getProgress(user.id).submissions?.[q.id];
   const sx = store.getSessionById(q.sessionId);
   const kind = q.type === 'auto' ? 'Quiz' : written ? 'Test' : 'Assignment';
+  const back =
+    user.role === 'admin'
+      ? `<button class="back-link" data-action="go" data-route="admin-tests">← Tests</button>`
+      : sx
+        ? `<button class="back-link" data-action="go" data-route="session" data-id="${q.sessionId}">← ${esc(sx.title)}</button>
+           <button class="back-link" data-action="go" data-route="student-tests" style="margin-left:8px">My Tests</button>`
+        : `<button class="back-link" data-action="go" data-route="student-tests">← My Tests</button>`;
   const head = `
-    <button class="back-link" data-action="go" data-route="session" data-id="${q.sessionId}">← ${esc(sx ? sx.title : 'Back')}</button>
+    ${back}
     <div class="page-head"><div><span class="eyebrow">${kind}${q.due ? ` · Due ${fmtDate(q.due)}` : ''}</span><h1>${esc(q.title)}</h1></div></div>`;
 
   /* ---- written test (free-response, instructor-graded) ---- */
@@ -1690,6 +1724,12 @@ function adminNav() {
     { route: 'curriculum', label: 'Curriculum', icon: '❖' },
     { route: 'admin-content', label: 'Sessions', icon: '▶' },
     {
+      route: 'admin-tests',
+      label: 'Tests',
+      icon: '✓',
+      routes: ['admin-tests'],
+    },
+    {
       route: 'admin-grading',
       label: 'Grading',
       icon: '✎',
@@ -1722,11 +1762,12 @@ function adminHome() {
   const queue = store.getGradingQueue();
   const leads = store.getLeads();
   const activeLeads = leads.filter((l) => l.status !== 'lost' && l.status !== 'enrolled').length;
-  const avgCompletion = students.length
-    ? Math.round(
-        students.reduce((sum, s) => sum + store.getStudentStats(s.id).completionPct, 0) / students.length
-      )
-    : 0;
+  const scoredAvgs = students
+    .map((s) => store.getStudentStats(s.id).avgScore)
+    .filter((n) => n != null);
+  const avgScoreLabel = scoredAvgs.length
+    ? `${Math.round(scoredAvgs.reduce((a, b) => a + b, 0) / scoredAvgs.length)}%`
+    : '—';
 
   return `
   ${pageHeadHelp('Instructor Dashboard', 'Weekly teaching overview · Summer 2026 cohort', {
@@ -1735,7 +1776,7 @@ function adminHome() {
     helpSteps: [
       'Update <strong>Curriculum</strong> for the week, then publish it to students.',
       'In <strong>Sessions</strong>, set each recording’s week number and use <strong>Publish Week</strong>.',
-      'Create or open the weekly test under <strong>Sessions → Weekly tests</strong>, then publish it.',
+      'Create or edit the weekly test under <strong>Tests</strong>, then publish it for student <strong>My Tests</strong>.',
       'Grade submissions under <strong>Grading</strong> when students turn work in.',
       'Use <strong>More tools</strong> for Students roster, CRM leads, and Access (approved emails).',
     ],
@@ -1747,7 +1788,7 @@ function adminHome() {
     dismissKey: 'admin-quickstart',
     title: 'Quick start for instructors',
     steps: [
-      'Primary work lives in the left menu: <strong>Curriculum</strong>, <strong>Sessions</strong>, and <strong>Grading</strong>.',
+      'Primary work lives in the left menu: <strong>Curriculum</strong>, <strong>Sessions</strong>, <strong>Tests</strong>, and <strong>Grading</strong>.',
       'Students only see what you publish (syllabus weeks, sessions, and live tests).',
       'Approve emails under <strong>More tools → Access</strong> before a new student can sign up.',
       'Need help mid-task? Click the <strong>How to</strong> button on any page.',
@@ -1761,23 +1802,23 @@ function adminHome() {
     </button>
     <button type="button" class="quick-check-card" data-action="go" data-route="admin-content">
       <strong>2. Sessions</strong>
-      <span>Release recordings &amp; tests</span>
+      <span>Release recordings</span>
+    </button>
+    <button type="button" class="quick-check-card" data-action="go" data-route="admin-tests">
+      <strong>3. Tests</strong>
+      <span>Create &amp; publish My Tests</span>
     </button>
     <button type="button" class="quick-check-card" data-action="go" data-route="admin-grading">
-      <strong>3. Grading</strong>
+      <strong>4. Grading</strong>
       <span>${queue.length ? `${queue.length} waiting` : 'All caught up'}</span>
-    </button>
-    <button type="button" class="quick-check-card" data-action="go" data-route="admin-crm">
-      <strong>4. CRM</strong>
-      <span>${activeLeads} active lead${activeLeads === 1 ? '' : 's'}</span>
     </button>
   </div>
 
   <div class="stat-grid">
     ${statCard('Enrolled students', students.length)}
-    ${statCard('Avg. completion', `${avgCompletion}%`, bar(avgCompletion))}
     ${statCard('Awaiting grading', queue.length, queue.length ? `<button class="link-arrow" data-action="go" data-route="admin-grading">Grade now →</button>` : 'All caught up')}
     ${statCard('Active leads', activeLeads, `<button class="link-arrow" data-action="go" data-route="admin-crm">Open CRM →</button>`)}
+    ${statCard('Avg. score', avgScoreLabel)}
   </div>
 
   <div class="two-col">
@@ -1841,7 +1882,7 @@ function adminStudents() {
   <section class="panel no-pad">
     <div class="table-scroll">
     <table class="data-table">
-      <thead><tr><th>Student</th><th>Plan</th><th>Progress</th><th>Avg score</th><th>Pending</th><th></th></tr></thead>
+      <thead><tr><th>Student</th><th>Plan</th><th>Sessions</th><th>Avg score</th><th>Pending</th><th></th></tr></thead>
       <tbody>
         ${students
           .map((s) => {
@@ -1849,7 +1890,7 @@ function adminStudents() {
             return `<tr class="clickable" data-action="go" data-route="admin-student" data-id="${s.id}">
               <td><div class="cell-user">${avatar(s, 34)}<span><strong>${esc(s.name)}</strong><small>${esc(s.email)}</small></span></div></td>
               <td>${esc(s.plan)}</td>
-              <td><div class="cell-prog">${bar(st.completionPct)}<span>${st.completionPct}%</span></div></td>
+              <td>${st.completed}/${st.totalSessions}</td>
               <td>${st.avgScore == null ? '—' : st.avgScore + '%'}</td>
               <td>${st.pendingGrading ? `<span class="pill pill-pending">${st.pendingGrading}</span>` : '—'}</td>
               <td class="chev">›</td>
@@ -1878,10 +1919,10 @@ function adminStudentDetail() {
   </div>
 
   <div class="stat-grid">
-    ${statCard('Completion', `${st.completionPct}%`, bar(st.completionPct))}
     ${statCard('Sessions', `${st.completed}/${st.totalSessions}`)}
     ${statCard('Avg score', st.avgScore == null ? '—' : `${st.avgScore}%`)}
     ${statCard('Tests taken', st.quizzesTaken)}
+    ${statCard('Pending grades', st.pendingGrading || 0)}
   </div>
 
   <div class="two-col">
@@ -2419,10 +2460,12 @@ function adminContent() {
       helpSteps: [
         'Set each recording’s <strong>Wk</strong> number to the correct week.',
         'Use <strong>Release to students</strong> → <strong>Publish Week N sessions</strong>.',
-        'Create the weekly test under <strong>Weekly tests</strong>, then publish it.',
+        'Create and publish the weekly test under <strong>Tests</strong> (student My Tests).',
         'Optional: add a Google Meet link under Live Class (collapsed below).',
       ],
-      actions: `<button class="btn btn-primary" data-action="add-session">+ Add Session</button>`,
+      actions: `
+        <button class="btn btn-outline" data-action="go" data-route="admin-tests">Tests →</button>
+        <button class="btn btn-primary" data-action="add-session">+ Add Session</button>`,
     }
   )}
 
@@ -2453,7 +2496,15 @@ function adminContent() {
     }</p>
   </section>
 
-  ${adminWeeklyTestsPanel()}
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Weekly tests</h2>
+      <button type="button" class="btn btn-primary btn-sm" data-action="go" data-route="admin-tests">Open Tests →</button>
+    </div>
+    <p class="hint" style="margin-top:0">
+      Enter free-response questions for student <strong>My Tests</strong>, publish when ready, then grade under <strong>Grading</strong>.
+    </p>
+  </section>
 
   <details class="panel panel-collapsible">
     <summary>
@@ -2474,30 +2525,46 @@ function adminContent() {
   ${adminMaterialsPanel()}`;
 }
 
-/** Admin: create free-response weekly tests and publish them for students. */
+/** Infer week number for a quiz (session week, else "Week N" in title). */
+function quizWeekNum(q) {
+  const sx = store.getSessionById(q.sessionId);
+  if (sx && Number(sx.week) > 0) return Number(sx.week);
+  const m = String(q.title || '').match(/\bweek\s*(\d+)\b/i);
+  return m ? Number(m[1]) : null;
+}
+
+/** Admin: create / edit free-response weekly tests for student My Tests. */
 function adminWeeklyTestsPanel() {
-  const quizzes = [...store.getQuizzes()].sort((a, b) =>
-    String(a.title).localeCompare(String(b.title))
-  );
+  const quizzes = [...store.getQuizzes()].sort((a, b) => {
+    const wa = quizWeekNum(a) || 99;
+    const wb = quizWeekNum(b) || 99;
+    return wa - wb || String(a.title).localeCompare(String(b.title));
+  });
   const sessions = store.getSessions();
-  const weekOpts = [...new Set(sessions.map((s) => Number(s.week)).filter(Boolean))]
-    .sort((a, b) => a - b);
-  // Always offer weeks 1–12 for planning even if no session exists yet
+  const weekOpts = [...new Set(sessions.map((s) => Number(s.week)).filter(Boolean))];
   for (let w = 1; w <= 12; w++) if (!weekOpts.includes(w)) weekOpts.push(w);
   weekOpts.sort((a, b) => a - b);
+
+  const editing = editingQuizId ? store.getQuizById(editingQuizId) : null;
+  const editWeek = editing ? quizWeekNum(editing) || 1 : 2;
+  const editQuestions = editing?.questions?.map((qq) => qq.prompt).join('\n') || '';
+  const defaultWeek = editing ? editWeek : 2;
 
   const rows = quizzes.length
     ? quizzes
         .map((q) => {
-          const sx = store.getSessionById(q.sessionId);
-          const weekLabel = sx ? `W${sx.week}` : '—';
+          const wk = quizWeekNum(q);
+          const weekLabel = wk ? `W${wk}` : '—';
           const qCount = Array.isArray(q.questions) ? q.questions.length : 0;
-          return `<div class="quiz-live-row week-test-row">
+          const isEdit = editingQuizId === q.id;
+          return `<div class="quiz-live-row week-test-row${isEdit ? ' week-test-editing' : ''}">
             <span class="qlr-title">
               <strong>${esc(q.title)}</strong>
               <span class="muted"> · ${weekLabel}${q.due ? ` · due ${fmtDate(q.due)}` : ''} · ${qCount} question${qCount === 1 ? '' : 's'}</span>
             </span>
             ${q.published ? `<span class="pill pill-done">● Live</span>` : `<span class="pill pill-todo">Offline</span>`}
+            <button type="button" class="btn btn-sm btn-outline"
+              data-action="edit-quiz" data-id="${q.id}">${isEdit ? 'Editing…' : 'Edit'}</button>
             <button type="button" class="btn btn-sm ${q.published ? 'btn-outline' : 'btn-primary'}"
               data-action="toggle-quiz-live" data-id="${q.id}">
               ${q.published ? 'Take offline' : 'Publish to students'}
@@ -2507,49 +2574,94 @@ function adminWeeklyTestsPanel() {
           </div>`;
         })
         .join('')
-    : `<p class="muted">No tests yet. Create Week 2’s test below, then publish it for students under <strong>My Tests</strong>.</p>`;
+    : `<p class="muted">No tests yet. Create one below (or import a week’s curriculum quiz lines), then publish for students under <strong>My Tests</strong>.</p>`;
 
   return `
   <section class="panel">
     <div class="panel-head">
-      <h2>Weekly tests</h2>
-      <span class="muted" style="font-size:0.84rem">Create · edit live status · students see only published tests</span>
+      <h2>${editing ? 'Edit test' : 'Create weekly test'}</h2>
+      <span class="muted" style="font-size:0.84rem">Students answer under My Tests · you grade under Grading</span>
     </div>
     <p class="hint" style="margin-top:0">
-      Write free-response questions (one per line). Link to a week so the test appears with that week’s release.
-      Use <strong>Publish to students</strong> when the class is ready — offline tests stay hidden under My Tests.
+      Write free-response questions (one per line). Link to a week, then
+      <strong>Publish to students</strong> when ready — offline tests stay hidden under My Tests.
     </p>
 
-    <form id="createTestForm" class="create-test-form">
+    <form id="createTestForm" class="create-test-form" data-edit-id="${editing ? esc(editing.id) : ''}">
       <div class="create-test-grid">
         <label class="field"><span>Week</span>
           <select name="week" required>
-            ${weekOpts.map((w) => `<option value="${w}" ${w === 2 ? 'selected' : ''}>Week ${w}</option>`).join('')}
+            ${weekOpts
+              .map(
+                (w) =>
+                  `<option value="${w}" ${Number(w) === Number(defaultWeek) ? 'selected' : ''}>Week ${w}</option>`
+              )
+              .join('')}
           </select>
         </label>
         <label class="field create-test-grow"><span>Test title</span>
-          <input type="text" name="title" placeholder="Week 2 Test — Business Structure &amp; Legal Foundation" required />
+          <input type="text" name="title" required
+            value="${esc(editing?.title || '')}"
+            placeholder="Week 2 Test — Business Structure &amp; Legal Foundation" />
         </label>
         <label class="field"><span>Due date <em class="muted">(optional)</em></span>
-          <input type="date" name="due" />
+          <input type="date" name="due" value="${esc(editing?.due || '')}" />
         </label>
         <label class="field create-test-full"><span>Questions <em class="muted">(one per line)</em></span>
-          <textarea name="questions" rows="6" required
-            placeholder="What is the main liability difference between a sole proprietorship and an LLC?&#10;Why do funders care whether personal and business finances are separated?"></textarea>
+          <textarea name="questions" rows="8" required
+            placeholder="What is the main liability difference between a sole proprietorship and an LLC?&#10;Why do funders care whether personal and business finances are separated?">${esc(
+              editQuestions
+            )}</textarea>
         </label>
       </div>
       <div class="create-test-actions">
-        <label class="check-inline">
-          <input type="checkbox" name="publishNow" />
+        ${
+          editing
+            ? ''
+            : `<label class="check-inline">
+          <input type="checkbox" name="publishNow" ${editing?.published ? 'checked' : ''} />
           <span>Publish to students immediately</span>
-        </label>
-        <button type="submit" class="btn btn-primary">Create weekly test</button>
+        </label>`
+        }
+        ${
+          editing
+            ? `<label class="check-inline">
+          <input type="checkbox" name="publishNow" ${editing.published ? 'checked' : ''} />
+          <span>Published (live on My Tests)</span>
+        </label>`
+            : ''
+        }
+        ${
+          editing
+            ? `<button type="button" class="btn btn-outline" data-action="cancel-edit-quiz">Cancel</button>
+               <button type="submit" class="btn btn-primary">Save changes</button>`
+            : `<button type="submit" class="btn btn-primary">Create weekly test</button>`
+        }
       </div>
     </form>
 
     <div class="panel-head" style="margin-top:18px"><h3 style="margin:0;font-size:1rem">All tests</h3></div>
     <div class="quiz-live-list week-test-list">${rows}</div>
   </section>`;
+}
+
+/** Admin page: Tests for student My Tests. */
+function adminTests() {
+  return `
+  ${pageHeadHelp(
+    'Tests',
+    'Create free-response tests students complete under My Tests.',
+    {
+      helpId: 'admin-tests',
+      helpTitle: 'How Tests work',
+      helpSteps: [
+        'Add questions (one per line) and link the test to a week.',
+        'Use <strong>Publish to students</strong> when ready — only live tests appear under My Tests.',
+        'Grade submissions under <strong>Grading</strong>.',
+      ],
+    }
+  )}
+  ${adminWeeklyTestsPanel()}`;
 }
 
 /* ---- Access: approved-student allowlist ----------------------------------- */
@@ -2638,23 +2750,23 @@ function crmRows() {
   const withStats = students.map((s) => ({ s, st: store.getStudentStats(s.id) }));
   return {
     kind: 'students',
-    columns: ['Name', 'Email', 'Phone', 'Cohort', 'Plan', 'Enrolled', 'Grant ($300 fee)', 'Completion', 'Avg score', 'Pending'],
+    columns: ['Name', 'Email', 'Phone', 'Cohort', 'Plan', 'Enrolled', 'Grant ($300 fee)', 'Sessions', 'Avg score', 'Pending'],
     data: withStats,
     exportRows: withStats.map(({ s, st }) => [
       s.name, s.email, s.phone, s.cohort, s.plan, fmtDate(s.enrolled), grantText(s),
-      `${st.completionPct}%`, st.avgScore == null ? '—' : `${st.avgScore}%`, st.pendingGrading,
+      `${st.completed}/${st.totalSessions}`, st.avgScore == null ? '—' : `${st.avgScore}%`, st.pendingGrading,
     ]),
   };
 }
 
 /** Columns + rows for the Students roster export (CSV/PDF/Word). */
 function studentExportData() {
-  const cols = ['Name', 'Email', 'Phone', 'Cohort', 'Plan', 'Enrolled', 'Grant ($300 fee)', 'Completion', 'Avg score', 'Pending'];
+  const cols = ['Name', 'Email', 'Phone', 'Cohort', 'Plan', 'Enrolled', 'Grant ($300 fee)', 'Sessions', 'Avg score', 'Pending'];
   const rows = store.getStudents().map((s) => {
     const st = store.getStudentStats(s.id);
     return [s.name, s.email, s.phone, s.cohort, s.plan, fmtDate(s.enrolled),
       s.grantAwarded ? `$${s.grantAmount || 0}` : '—',
-      `${st.completionPct}%`, st.avgScore == null ? '—' : `${st.avgScore}%`, st.pendingGrading];
+      `${st.completed}/${st.totalSessions}`, st.avgScore == null ? '—' : `${st.avgScore}%`, st.pendingGrading];
   });
   return { cols, rows };
 }
@@ -2739,7 +2851,7 @@ function adminCRM() {
         <td>${esc(s.plan)}</td>
         <td>${fmtDate(s.enrolled)}</td>
         ${grantCell('student', s)}
-        <td><div class="cell-prog">${bar(st.completionPct)}<span>${st.completionPct}%</span></div></td>
+        <td>${st.completed}/${st.totalSessions}</td>
         <td>${st.avgScore == null ? '—' : st.avgScore + '%'}</td>
         <td>${st.pendingGrading || '—'}</td>
       </tr>`
@@ -2900,7 +3012,7 @@ function render() {
     const content = (views[route.name] || studentHome)(user);
     app.innerHTML = shell(user, studentNav(user), content);
   } else {
-    const allowed = ['admin-home', 'admin-students', 'admin-student', 'admin-grading', 'grade', 'admin-crm', 'admin-content', 'curriculum', 'discussion', 'admin-access', 'account'];
+    const allowed = ['admin-home', 'admin-students', 'admin-student', 'admin-grading', 'grade', 'admin-crm', 'admin-content', 'admin-tests', 'curriculum', 'discussion', 'admin-access', 'account'];
     if (!allowed.includes(route.name)) route = { name: 'admin-home', params: {} };
     const views = {
       'admin-home': adminHome,
@@ -2910,6 +3022,7 @@ function render() {
       grade: gradeView,
       'admin-crm': adminCRM,
       'admin-content': adminContent,
+      'admin-tests': adminTests,
       curriculum: () => curriculumView(user),
       discussion: () => discussionView(user),
       'admin-access': adminAccess,
@@ -3223,10 +3336,22 @@ app.addEventListener('click', async (e) => {
       if (!q) break;
       if (!confirm(`Delete test “${q.title}”? Student submissions for it may be lost.`)) break;
       const res = await store.deleteQuiz(q.id);
+      if (res.ok && editingQuizId === q.id) editingQuizId = null;
       toast(res.ok ? 'Test deleted' : res.error || 'Could not delete test');
       render();
       break;
     }
+    case 'edit-quiz': {
+      editingQuizId = d.id || null;
+      go('admin-tests');
+      break;
+    }
+    case 'cancel-edit-quiz': {
+      editingQuizId = null;
+      render();
+      break;
+    }
+
     case 'toggle-session-publish': {
       const s = store.getSessionById(d.id);
       if (!s) break;
@@ -3616,6 +3741,53 @@ app.addEventListener('submit', async (e) => {
     const questions = form.questions.value;
     const due = form.due.value || null;
     const publishNow = !!form.publishNow?.checked;
+    const editId = form.dataset.editId || editingQuizId || '';
+    if (editId) {
+      const unbusy = setBusy(form, 'Saving…');
+      const res = await store.updateWeeklyTest(editId, {
+        week,
+        title,
+        questions,
+        due,
+        published: publishNow,
+      });
+      unbusy();
+      if (!res.ok) {
+        toast(res.error || 'Could not save test');
+        return;
+      }
+      editingQuizId = null;
+      toast(publishNow ? 'Test saved and live on My Tests ✓' : 'Test saved (offline) ✓');
+      render();
+      return;
+    }
+    // Prefer update when a primary test already exists for this week
+    const existing = store.findPrimaryWeekTest(week);
+    if (existing) {
+      const replace = confirm(
+        `Week ${week} already has “${existing.title}”. Update that test with these questions? (Cancel to create a separate test.)`
+      );
+      if (replace) {
+        const unbusy = setBusy(form, 'Saving…');
+        const res = await store.updateWeeklyTest(existing.id, {
+          week,
+          title: title || existing.title,
+          questions,
+          due,
+          published: publishNow,
+        });
+        unbusy();
+        if (!res.ok) {
+          toast(res.error || 'Could not update test');
+          return;
+        }
+        toast(publishNow ? 'Test updated and published ✓' : 'Test updated (offline) ✓');
+        form.reset();
+        if (form.week) form.week.value = String(week);
+        render();
+        return;
+      }
+    }
     const unbusy = setBusy(form, 'Creating…');
     const res = await store.createWeeklyTest({
       week,
@@ -4129,7 +4301,7 @@ app.addEventListener('change', async (e) => {
   } else if (action === 'curric-week-quiz') {
     curricOpenWeek = Number(node.dataset.week);
     store.updateCurriculumWeek(node.dataset.week, { quiz: node.value });
-    toast('Quiz questions saved ✓');
+    toast('Action plan saved ✓');
     render();
   }
 });

@@ -66,6 +66,32 @@ function loadLocal() {
           dirty = true;
         }
       }
+      // Migration: ensure Week 2 curriculum quiz exists as a My Tests entry
+      if (Array.isArray(parsed.quizzes) && !parsed.quizzes.some((q) => q.id === 'qw2')) {
+        const w2 = (parsed.curriculum?.weeks || SEED.curriculum?.weeks || []).find(
+          (w) => Number(w.week) === 2
+        );
+        const prompts = w2?.quiz?.length
+          ? w2.quiz
+          : (SEED.quizzes || []).find((q) => q.id === 'qw2')?.questions?.map((qq) => qq.prompt);
+        if (prompts?.length) {
+          parsed.quizzes.push({
+            id: 'qw2',
+            sessionId: null,
+            type: 'manual',
+            published: true,
+            due: '2026-07-20',
+            title: 'Week 2 Test — Business Structure & Legal Foundation',
+            maxScore: 100,
+            questions: prompts.map((prompt, i) =>
+              typeof prompt === 'string'
+                ? { id: `qw2-${i + 1}`, prompt }
+                : prompt
+            ),
+          });
+          dirty = true;
+        }
+      }
       if (dirty) {
         try { localStorage.setItem(KEY, JSON.stringify(parsed)); } catch { /* ignore */ }
       }
@@ -448,6 +474,37 @@ export function getCurriculum() {
 export const getQuizzes = () => state.quizzes;
 export const getQuizById = (id) => state.quizzes.find((q) => q.id === id) || null;
 export const getQuizzesForSession = (sid) => state.quizzes.filter((q) => q.sessionId === sid);
+
+/** Match a quiz to a curriculum week via linked session week or "Week N" in title. */
+export function quizMatchesWeek(q, weekNum, sessions = state.sessions) {
+  const wNum = Number(weekNum);
+  if (!q || !Number.isFinite(wNum)) return false;
+  const sx = (sessions || []).find((s) => s.id === q.sessionId);
+  if (sx && Number(sx.week) === wNum) return true;
+  return new RegExp(`\\bweek\\s*${wNum}\\b`, 'i').test(q.title || '');
+}
+
+export const getQuizzesForWeek = (weekNum) =>
+  state.quizzes.filter((q) => quizMatchesWeek(q, weekNum));
+
+/**
+ * Prefer the main weekly free-response test for a week (not "Why" reflections).
+ * Used when pushing curriculum quiz lines into My Tests.
+ */
+export function findPrimaryWeekTest(weekNum) {
+  const list = getQuizzesForWeek(weekNum).filter(
+    (q) => q.type === 'manual' && Array.isArray(q.questions) && q.questions.length > 0
+  );
+  if (!list.length) return null;
+  const notWhy = list.filter((q) => !/\bwhy\b/i.test(q.title || ''));
+  const pool = notWhy.length ? notWhy : list;
+  return (
+    pool.find((q) => /\btest\b/i.test(q.title || '')) ||
+    pool.find((q) => /\bquiz\b/i.test(q.title || '')) ||
+    pool[0]
+  );
+}
+
 // Student-facing: only tests an admin has set "live" are visible. Sorted so the
 // soonest-due deliverable comes first (undated ones last).
 const byDue = (a, b) =>
@@ -456,6 +513,8 @@ const byDue = (a, b) =>
 export const getVisibleQuizzes = () => state.quizzes.filter((q) => q.published).sort(byDue);
 export const getVisibleQuizzesForSession = (sid) =>
   state.quizzes.filter((q) => q.published && q.sessionId === sid).sort(byDue);
+export const getVisibleQuizzesForWeek = (weekNum) =>
+  getQuizzesForWeek(weekNum).filter((q) => q.published).sort(byDue);
 export const getLeads = () =>
   [...state.leads].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 
@@ -778,7 +837,7 @@ export function setQuizPublished(quizId, published) {
 
 /**
  * Create a free-response weekly test (manual quiz) and optionally publish it.
- * @param {{ week?: number, title?: string, questions?: string|string[], due?: string, published?: boolean, sessionId?: string }} opts
+ * @param {{ week?: number, title?: string, questions?: string|string[], due?: string, published?: boolean, sessionId?: string, id?: string }} opts
  */
 export async function createWeeklyTest(opts = {}) {
   const weekNum = Math.max(1, Number(opts.week) || 1);
@@ -787,16 +846,18 @@ export async function createWeeklyTest(opts = {}) {
     return { ok: false, error: 'Add at least one quiz question (one per line).' };
   }
 
-  // Link to a session in that week when possible (for student session detail + week hub)
+  // Link to a session in that week when possible (for student session detail + week hub).
+  // Never fall back to another week's session — title matching still associates the week.
   const weekSessions = getSessionsForWeek(weekNum);
-  const sessionId =
-    opts.sessionId ||
-    weekSessions[0]?.id ||
-    getSessions().find((s) => Number(s.week) === weekNum)?.id ||
-    getSessions()[0]?.id ||
-    null;
+  let sessionId = opts.sessionId;
+  if (sessionId === undefined) {
+    sessionId =
+      weekSessions[0]?.id ||
+      getSessions().find((s) => Number(s.week) === weekNum)?.id ||
+      null;
+  }
 
-  const id = `qw${weekNum}-${Date.now().toString(36)}`;
+  const id = String(opts.id || `qw${weekNum}-${Date.now().toString(36)}`);
   const title =
     String(opts.title || '').trim() ||
     `Week ${weekNum} Test`;
@@ -846,6 +907,143 @@ export async function createWeeklyTest(opts = {}) {
     return { ok: false, error: saved.error || 'Could not create test' };
   }
   return { ok: true, quiz };
+}
+
+/**
+ * Update an existing free-response weekly test.
+ * Question ids are preserved by index when possible so prior submissions keep mapping.
+ * @param {string} quizId
+ * @param {{ week?: number, title?: string, questions?: string|string[], due?: string|null, published?: boolean, sessionId?: string }} opts
+ */
+export async function updateWeeklyTest(quizId, opts = {}) {
+  const next = structuredClone(state);
+  const q = (next.quizzes || []).find((x) => x.id === quizId);
+  if (!q) return { ok: false, error: 'Test not found' };
+
+  const prevSnapshot = structuredClone(q);
+
+  if (opts.title !== undefined) {
+    const t = String(opts.title || '').trim();
+    if (t) q.title = t;
+  }
+  if (opts.due !== undefined) {
+    q.due = opts.due ? String(opts.due).slice(0, 10) : null;
+  }
+  if (opts.published !== undefined) {
+    q.published = !!opts.published;
+  }
+
+  if (opts.week !== undefined || opts.sessionId !== undefined) {
+    const weekNum = Math.max(1, Number(opts.week) || 1);
+    const weekSessions = getSessionsForWeek(weekNum);
+    if (opts.sessionId !== undefined) {
+      q.sessionId = opts.sessionId;
+    } else {
+      q.sessionId =
+        weekSessions[0]?.id ||
+        getSessions().find((s) => Number(s.week) === weekNum)?.id ||
+        q.sessionId ||
+        null;
+    }
+  }
+
+  if (opts.questions !== undefined) {
+    const lines = toLines(opts.questions);
+    if (!lines.length) {
+      return { ok: false, error: 'Add at least one quiz question (one per line).' };
+    }
+    const prevQs = Array.isArray(q.questions) ? q.questions : [];
+    q.questions = lines.map((prompt, i) => ({
+      id: prevQs[i]?.id || `${q.id}-${i + 1}`,
+      prompt,
+    }));
+  }
+
+  set(next);
+
+  const saved = await writeThrough(() =>
+    supabase
+      .from('quizzes')
+      .update({
+        session_id: q.sessionId,
+        title: q.title,
+        questions: q.questions,
+        published: !!q.published,
+        due_date: q.due,
+      })
+      .eq('id', quizId)
+  );
+  if (!saved.ok) {
+    if (USE_SUPABASE) {
+      const roll = structuredClone(state);
+      const rq = (roll.quizzes || []).find((x) => x.id === quizId);
+      if (rq) Object.assign(rq, prevSnapshot);
+      set(roll);
+    }
+    return { ok: false, error: saved.error || 'Could not update test' };
+  }
+  return { ok: true, quiz: q };
+}
+
+/**
+ * Create or update the week's My Tests entry from curriculum.week.quiz lines.
+ * @param {number|string} weekNum
+ * @param {{ published?: boolean, title?: string, due?: string }} opts
+ */
+export async function pushCurriculumQuizToTest(weekNum, opts = {}) {
+  const wNum = Math.max(1, Number(weekNum) || 1);
+  const c = getCurriculum();
+  const week = (c.weeks || []).find((w) => Number(w.week) === wNum);
+  if (!week) return { ok: false, error: `No curriculum week ${wNum}` };
+
+  const lines = toLines(week.quiz);
+  if (!lines.length) {
+    return {
+      ok: false,
+      error: 'Add quiz questions on this week first (one per line), then push to My Tests.',
+    };
+  }
+
+  const title =
+    String(opts.title || '').trim() ||
+    `Week ${wNum} Test — ${week.title || ''}`.replace(/\s+—\s*$/, '').trim() ||
+    `Week ${wNum} Test`;
+
+  const existing = findPrimaryWeekTest(wNum);
+  if (existing) {
+    const res = await updateWeeklyTest(existing.id, {
+      week: wNum,
+      title: opts.title !== undefined ? title : existing.title,
+      questions: lines,
+      due: opts.due !== undefined ? opts.due : existing.due,
+      published: opts.published !== undefined ? opts.published : existing.published,
+    });
+    return res.ok
+      ? { ok: true, quiz: res.quiz, created: false, updated: true }
+      : res;
+  }
+
+  let res = await createWeeklyTest({
+    week: wNum,
+    title,
+    questions: lines,
+    due: opts.due || null,
+    published: !!opts.published,
+    id: `qw${wNum}`,
+  });
+  // If fixed id collides (e.g. re-seed leftover), create with a generated id
+  if (!res.ok && /duplicate|unique|already exists/i.test(String(res.error || ''))) {
+    res = await createWeeklyTest({
+      week: wNum,
+      title,
+      questions: lines,
+      due: opts.due || null,
+      published: !!opts.published,
+    });
+  }
+  return res.ok
+    ? { ok: true, quiz: res.quiz, created: true, updated: false }
+    : res;
 }
 
 /** Delete a test/quiz (admin). */

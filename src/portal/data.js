@@ -10,11 +10,11 @@
 
 import { CURRICULUM } from './curriculum.js';
 
-// The Week 1 test shows students the EXACT free-response questions from the
-// curriculum (curriculum.js is the single source of truth — we never redefine
-// them here). It is manually graded and starts OFFLINE until an admin sets it
-// live from the Sessions panel.
+// Weekly tests show students the EXACT free-response questions from the
+// curriculum (curriculum.js is the single source of truth). They are
+// instructor-graded and appear under student My Tests when published.
 const week1 = CURRICULUM.weeks.find((w) => w.week === 1);
+const week2 = CURRICULUM.weeks.find((w) => w.week === 2);
 const WEEK1_TEST = {
   id: 'qw1',
   sessionId: 's1',
@@ -24,6 +24,18 @@ const WEEK1_TEST = {
   title: 'Week 1 Test — Entrepreneurial Mindset & Business Foundation',
   maxScore: 100,
   questions: (week1?.quiz || []).map((prompt, i) => ({ id: `qw1-${i + 1}`, prompt })),
+};
+
+const WEEK2_TEST = {
+  id: 'qw2',
+  // No week-2 session recording yet — title matching still associates this with Week 2
+  sessionId: null,
+  type: 'manual',
+  published: true,
+  due: '2026-07-20',
+  title: 'Week 2 Test — Business Structure & Legal Foundation',
+  maxScore: 100,
+  questions: (week2?.quiz || []).map((prompt, i) => ({ id: `qw2-${i + 1}`, prompt })),
 };
 
 // Week 1 "Why" reflection — a separate portfolio deliverable, due before the quiz.
@@ -177,10 +189,10 @@ export const SEED = {
   ],
 
   // ---- Tests / quizzes -------------------------------------------------------
-  // Week 1 deliverables: the "Why" reflection (due Fri) + the quiz (due Mon,
-  // questions from curriculum.js). Written tests are free-response and
-  // instructor-graded; `published` stays false until an admin sets them "live".
-  quizzes: [WEEK1_WHY, WEEK1_TEST],
+  // Week 1 deliverables: the "Why" reflection + the week test (curriculum quiz
+  // lines). Week 2 test uses curriculum week 2 quiz lines. Free-response and
+  // instructor-graded; students only see rows with published: true under My Tests.
+  quizzes: [WEEK1_WHY, WEEK1_TEST, WEEK2_TEST],
 
   // ---- Per-student progress + quiz submissions -------------------------------
   // completed: array of session ids the student has finished
