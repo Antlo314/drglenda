@@ -162,7 +162,15 @@ let route = { name: null, params: {} };
 let crm = { view: 'leads', q: '', status: 'all', adding: false, editingId: null, notesOpen: new Set() };
 // Discussion composer draft + reply target, kept across live re-renders.
 // `replyToId` is the root post being replied to; `focusAfterRender` re-focuses after post.
-let disc = { draft: '', replyToId: null, focusAfterRender: false };
+let disc = {
+  draft: '',
+  replyToId: null,
+  focusAfterRender: false,
+  /** Which week accordion is open on Discussion */
+  openWeek: null,
+  /** Week number the composer is posting to */
+  postWeek: null,
+};
 
 // logged-out auth screens
 let authScreen = 'login'; // 'login' | 'signup' | 'forgot'
@@ -800,7 +808,12 @@ function weekBlock(w, open, { admin = false } = {}) {
     ? `<p class="muted">No content yet — use <strong>Edit</strong> to add details, then publish to students.</p>`
     : `${section('Learning Objectives', list(w.objectives, false))}
       ${section('Assignment', w.assignment ? `<p class="wk-callout wk-assign">${esc(w.assignment)}</p>` : '')}
-      ${section('Discussion Post', w.discussion ? `<p class="wk-callout wk-discuss">“${esc(w.discussion)}”</p>` : '')}
+      ${section(
+        'Discussion Post',
+        w.discussion
+          ? `<p class="wk-callout wk-discuss">${esc(w.discussion).replace(/\n/g, '<br />')}</p>`
+          : ''
+      )}
       ${section('Action plan', list(w.quiz, true))}
       ${testCta}
       ${w.pending ? `<p class="muted curric-pending-note">This week is not visible to students yet.</p>` : ''}`;
@@ -1106,13 +1119,14 @@ function fmtWhen(iso) {
 }
 
 /** One message in the class feed (root or reply). */
-function discussionMessage(p, user, { isReply = false } = {}) {
+function discussionMessage(p, user, { isReply = false, week = null } = {}) {
   const mine = p.authorId === user.id;
   const isInstructor = p.authorRole === 'admin';
   const canDelete = mine || user.role === 'admin';
   const author = { id: p.authorId || 'anon', name: p.authorName || 'Student' };
   // Reply always targets the thread root (one-level threads).
   const replyTargetId = isReply ? (p.parentId || p.id) : p.id;
+  const wk = week != null ? week : p.week;
   return `<div class="disc-msg${mine ? ' is-mine' : ''}${isInstructor ? ' is-instructor' : ''}${isReply ? ' is-reply' : ''}" data-post-id="${esc(p.id)}">
     ${avatar(author, isReply ? 32 : 40)}
     <div class="disc-bubble">
@@ -1121,7 +1135,7 @@ function discussionMessage(p, user, { isReply = false } = {}) {
         ${isInstructor ? `<span class="disc-tag">Instructor</span>` : ''}
         <span class="disc-time">${esc(fmtWhen(p.createdAt))}</span>
         <span class="disc-actions">
-          <button type="button" class="disc-reply-btn" data-action="reply-post" data-id="${esc(replyTargetId)}" data-name="${esc(p.authorName || 'Student')}" title="Reply" aria-label="Reply to ${esc(p.authorName || 'Student')}">Reply</button>
+          <button type="button" class="disc-reply-btn" data-action="reply-post" data-id="${esc(replyTargetId)}" data-week="${wk != null ? esc(String(wk)) : ''}" data-name="${esc(p.authorName || 'Student')}" title="Reply" aria-label="Reply to ${esc(p.authorName || 'Student')}">Reply</button>
           ${canDelete ? `<button type="button" class="disc-del" data-action="delete-post" data-id="${esc(p.id)}" title="Delete message" aria-label="Delete message">🗑</button>` : ''}
         </span>
       </div>
@@ -1130,13 +1144,15 @@ function discussionMessage(p, user, { isReply = false } = {}) {
   </div>`;
 }
 
-function discussionView(user) {
-  const posts = store.getDiscussion();
-  const weeks = store.getCurriculum().weeks || [];
-  // Prefer the first published week that has a discussion prompt
-  const promptWeek = weeks.find((w) => !w.pending && w.discussion) || weeks.find((w) => w.discussion);
-  const prompt = promptWeek?.discussion || '';
+/** Discussion live for students when admin published the prompt (not pending syllabus). */
+function isDiscussionLive(w) {
+  if (!w || !String(w.discussion || '').trim()) return false;
+  if (w.pending) return false;
+  return w.discussionPublished !== false;
+}
 
+/** Build thread HTML for a set of posts (roots + replies). */
+function discussionFeedHtml(posts, user, weekNum) {
   const roots = posts.filter((p) => !p.parentId);
   const byParent = new Map();
   posts.forEach((p) => {
@@ -1144,87 +1160,188 @@ function discussionView(user) {
     if (!byParent.has(p.parentId)) byParent.set(p.parentId, []);
     byParent.get(p.parentId).push(p);
   });
-
-  let feed;
   if (!posts.length) {
-    feed = `<div class="disc-empty">
+    return `<div class="disc-empty disc-empty-sm">
         <div class="empty-ico">💬</div>
-        <h3>Start the conversation</h3>
-        <p class="muted">Be the first to post — share your Discussion Post answer or ask the class a question.</p>
+        <h3>No posts yet</h3>
+        <p class="muted">Be the first to respond to this week’s prompt.</p>
       </div>`;
-  } else {
-    feed = roots
-      .map((root) => {
-        const replies = (byParent.get(root.id) || []).sort(
-          (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
-        );
-        const replyBlock = replies.length
-          ? `<div class="disc-replies" role="group" aria-label="Replies">${replies
-              .map((r) => discussionMessage(r, user, { isReply: true }))
-              .join('')}</div>`
-          : '';
-        return `<div class="disc-thread">${discussionMessage(root, user)}${replyBlock}</div>`;
-      })
-      .join('');
-    // Orphan replies (parent deleted/missing) — show as top-level so nothing vanishes.
-    const rootIds = new Set(roots.map((r) => r.id));
-    const orphans = posts.filter((p) => p.parentId && !rootIds.has(p.parentId));
-    if (orphans.length) {
-      feed += orphans.map((p) => `<div class="disc-thread">${discussionMessage(p, user)}</div>`).join('');
-    }
   }
+  let feed = roots
+    .map((root) => {
+      const replies = (byParent.get(root.id) || []).sort(
+        (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+      );
+      const replyBlock = replies.length
+        ? `<div class="disc-replies" role="group" aria-label="Replies">${replies
+            .map((r) => discussionMessage(r, user, { isReply: true, week: weekNum }))
+            .join('')}</div>`
+        : '';
+      return `<div class="disc-thread">${discussionMessage(root, user, { week: weekNum })}${replyBlock}</div>`;
+    })
+    .join('');
+  const rootIds = new Set(roots.map((r) => r.id));
+  const orphans = posts.filter((p) => p.parentId && !rootIds.has(p.parentId));
+  if (orphans.length) {
+    feed += orphans
+      .map((p) => `<div class="disc-thread">${discussionMessage(p, user, { week: weekNum })}</div>`)
+      .join('');
+  }
+  return feed;
+}
+
+function discussionView(user) {
+  const posts = store.getDiscussion();
+  const weeks = [...(store.getCurriculum().weeks || [])].sort(
+    (a, b) => Number(a.week) - Number(b.week)
+  );
+  const isAdmin = user?.role === 'admin';
+
+  // Default open week: disc.openWeek, else first live week, else week 2, else first
+  const liveWeeks = weeks.filter((w) => isDiscussionLive(w));
+  const defaultOpen =
+    disc.openWeek != null
+      ? disc.openWeek
+      : liveWeeks[0]?.week ??
+        weeks.find((w) => Number(w.week) === 2)?.week ??
+        weeks[0]?.week ??
+        null;
+
+  const postsForWeek = (weekNum) => {
+    const n = Number(weekNum);
+    return posts.filter((p) => {
+      if (p.week != null && Number.isFinite(Number(p.week))) return Number(p.week) === n;
+      // Legacy untagged posts: only show under first live week so nothing is lost
+      if (p.week == null || p.week === '') {
+        const firstLive = liveWeeks[0]?.week;
+        return firstLive != null && Number(firstLive) === n;
+      }
+      return false;
+    });
+  };
 
   const replyTarget = disc.replyToId
     ? posts.find((p) => p.id === disc.replyToId) || { authorName: 'classmate', id: disc.replyToId }
     : null;
-  const replyBar = replyTarget
-    ? `<div class="disc-reply-bar">
-        <span>Replying to <strong>${esc(replyTarget.authorName || 'classmate')}</strong></span>
-        <button type="button" class="link-btn" data-action="cancel-reply">Cancel</button>
-      </div>`
-    : '';
 
-  const isAdmin = user?.role === 'admin';
+  const weekBlocks = weeks
+    .map((w) => {
+      const wk = Number(w.week);
+      const live = isDiscussionLive(w);
+      // Students only see published discussions
+      if (!isAdmin && !live) return '';
+      const open = Number(defaultOpen) === wk;
+      const weekPosts = postsForWeek(wk);
+      const promptText = String(w.discussion || '').trim();
+      const pill = live
+        ? `<span class="pill pill-done">● Live</span>`
+        : `<span class="pill pill-todo">Offline</span>`;
+
+      const adminEditor = isAdmin
+        ? `<div class="disc-week-admin">
+            <label class="field"><span>Discussion prompt <em class="muted">(students see this when Live)</em></span>
+              <textarea class="disc-prompt-edit" rows="6" data-action="disc-week-prompt" data-week="${wk}"
+                placeholder="Write the discussion question for Week ${wk}…">${esc(promptText)}</textarea>
+            </label>
+            <div class="disc-week-admin-actions">
+              <button type="button" class="btn btn-primary btn-sm" data-action="save-disc-week" data-week="${wk}">Save prompt</button>
+              <button type="button" class="btn btn-sm ${live ? 'btn-outline' : 'btn-primary'}"
+                data-action="toggle-disc-publish" data-week="${wk}">
+                ${live ? 'Unpublish from students' : 'Publish to students'}
+              </button>
+            </div>
+          </div>`
+        : promptText
+          ? `<div class="disc-prompt disc-prompt-week">
+              <span class="disc-prompt-label">Discussion prompt</span>
+              <p class="disc-prompt-body">${esc(promptText).replace(/\n/g, '<br />')}</p>
+            </div>`
+          : `<p class="muted">No prompt yet for this week.</p>`;
+
+      const canPost = isAdmin || live;
+      const activeComposer = canPost && Number(disc.postWeek ?? defaultOpen) === wk;
+      const replyBar =
+        replyTarget && activeComposer
+          ? `<div class="disc-reply-bar">
+              <span>Replying to <strong>${esc(replyTarget.authorName || 'classmate')}</strong></span>
+              <button type="button" class="link-btn" data-action="cancel-reply">Cancel</button>
+            </div>`
+          : '';
+
+      const inputId = `discInput-${wk}`;
+      const composer = canPost
+        ? `${replyBar}
+          <form class="disc-composer discForm" data-week="${wk}" data-form="disc">
+            <input type="hidden" name="week" value="${wk}" />
+            ${avatar(user, 38)}
+            <textarea id="${inputId}" name="body" rows="2" maxlength="2000"
+              placeholder="${
+                replyTarget && activeComposer
+                  ? `Reply to ${esc(replyTarget.authorName || 'classmate')}…`
+                  : 'Write your response to this week’s prompt… (Enter to post)'
+              }"
+              data-action="disc-input" data-week="${wk}"
+              aria-label="Discussion post for week ${wk}"></textarea>
+            <button type="submit" class="btn btn-primary btn-sm">${
+              replyTarget && activeComposer ? 'Reply' : 'Post'
+            }</button>
+          </form>`
+        : `<p class="muted disc-offline-note">This discussion is offline. Your instructor will publish it when ready.</p>`;
+
+      return `<details class="disc-week${live ? '' : ' disc-week-offline'}" data-week="${wk}"${open ? ' open' : ''}>
+        <summary class="disc-week-sum">
+          <span class="wk-num-badge">Week ${wk}</span>
+          <span class="disc-week-title">${esc(w.title || `Week ${wk}`)}</span>
+          ${pill}
+          <span class="muted disc-week-count">${weekPosts.length} post${weekPosts.length === 1 ? '' : 's'}</span>
+          <span class="wk-chev" aria-hidden="true">▾</span>
+        </summary>
+        <div class="disc-week-body">
+          ${adminEditor}
+          <div class="disc-feed disc-feed-week" data-week="${wk}" aria-live="polite">
+            ${discussionFeedHtml(weekPosts, user, wk)}
+          </div>
+          ${composer}
+        </div>
+      </details>`;
+    })
+    .filter(Boolean)
+    .join('');
+
+  const emptyStudent =
+    !isAdmin && !liveWeeks.length
+      ? `<section class="panel"><div class="empty">
+          <div class="empty-ico">💬</div>
+          <h3>No discussions open yet</h3>
+          <p class="muted">Your instructor publishes each week’s discussion when the class is ready.</p>
+        </div></section>`
+      : '';
+
   return `
   ${pageHeadHelp(
     'Class Discussion',
     isAdmin
-      ? 'Class community · same board students use · you can delete posts'
-      : 'Post your discussion answers, ask questions, and reply to classmates.',
+      ? 'Edit prompts by week · publish when ready · moderate student posts'
+      : 'Answer each week’s discussion prompt and reply to classmates.',
     {
       helpId: isAdmin ? 'admin-discussion' : 'student-discussion',
-      helpTitle: isAdmin ? 'How to moderate discussion' : 'How to use Discussion',
+      helpTitle: isAdmin ? 'How to run discussion' : 'How to use Discussion',
       helpSteps: isAdmin
         ? [
-            'Students post answers to the week’s discussion prompt here.',
-            'Reply to guide the conversation; delete posts that break guidelines.',
-            'Point students to the prompt shown at the top of this page.',
+            'Expand a week and edit the discussion prompt (Part 1 / Part 2, etc.).',
+            'Click <strong>Save prompt</strong>, then <strong>Publish to students</strong> when ready.',
+            'Students only see Live weeks. Reply or delete posts as needed.',
           ]
         : [
-            'Read the discussion prompt for the current week (if shown above).',
-            'Write your post, then use <strong>Reply</strong> on classmates’ messages.',
+            'Open a week to read the discussion prompt.',
+            'Write your response, then use <strong>Reply</strong> on classmates’ messages.',
             'Keep the tone respectful and supportive.',
           ],
     }
   )}
 
-  ${prompt ? `<div class="disc-prompt">
-    <span class="disc-prompt-label">This week’s discussion prompt</span>
-    <p>“${esc(prompt)}”</p>
-  </div>` : ''}
-
-  <section class="panel disc-panel no-pad">
-    <div class="disc-feed" id="discFeed" aria-live="polite">${feed}</div>
-    ${replyBar}
-    <form id="discForm" class="disc-composer">
-      ${avatar(user, 38)}
-      <textarea id="discInput" name="body" rows="1" maxlength="2000"
-        placeholder="${replyTarget ? `Reply to ${esc(replyTarget.authorName || 'classmate')}…` : 'Write a message to the class…  (Enter to post, Shift+Enter for a new line)'}"
-        data-action="disc-input" aria-label="${replyTarget ? 'Reply message' : 'Class message'}"></textarea>
-      <button type="submit" class="btn btn-primary btn-sm">${replyTarget ? 'Reply' : 'Post'}</button>
-    </form>
-  </section>
-  <p class="muted disc-foot">Visible to everyone in your cohort${USE_SUPABASE ? ' · updates live' : ''}. Please keep it respectful and supportive. 💛</p>`;
+  ${emptyStudent || `<div class="disc-weeks" id="discFeed">${weekBlocks || '<p class="muted">No curriculum weeks yet. Add weeks under Curriculum first.</p>'}</div>`}
+  <p class="muted disc-foot">Organized by week${USE_SUPABASE ? ' · updates live' : ''}. Please keep it respectful and supportive. 💛</p>`;
 }
 
 /* ===========================================================================
@@ -2996,7 +3113,10 @@ function recordForm(lead) {
 function render() {
   // Was the student mid-message when this re-render fired? (a live post arriving
   // shouldn't steal focus from the composer). Checked before we replace the DOM.
-  const discWasFocused = document.activeElement?.id === 'discInput';
+  const discWasFocused = !!document.activeElement?.matches?.('textarea[data-action="disc-input"]');
+  const discFocusWeek =
+    document.activeElement?.dataset?.week ||
+    (disc.postWeek != null ? String(disc.postWeek) : null);
 
   // Hydrate failed after a valid session — dedicated recovery UI.
   if (portalLoadError && currentUser()) {
@@ -3076,13 +3196,16 @@ function render() {
     updateBreakdownSumDisplay(gradeForm, sumBreakdownPoints(gradeForm));
   }
 
-  // Discussion: pin the feed to the newest message, restore the in-progress
-  // draft, and keep focus if the student was typing or just posted.
-  const feedEl = document.getElementById('discFeed');
-  if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
-  const composerEl = document.getElementById('discInput');
+  // Discussion: pin week feeds, restore draft, keep focus after live re-render.
+  document.querySelectorAll('.disc-feed-week').forEach((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+  const weekKey = discFocusWeek || (disc.openWeek != null ? String(disc.openWeek) : null);
+  const composerEl =
+    (weekKey && document.getElementById(`discInput-${weekKey}`)) ||
+    document.querySelector('textarea[data-action="disc-input"]');
   if (composerEl) {
-    if (composerEl.value !== disc.draft) composerEl.value = disc.draft;
+    if (disc.draft && composerEl.value !== disc.draft) composerEl.value = disc.draft;
     composerEl.style.height = 'auto';
     composerEl.style.height = `${Math.min(composerEl.scrollHeight, 140)}px`;
     if (discWasFocused || disc.focusAfterRender) {
@@ -3119,14 +3242,18 @@ function actionFrom(e) {
   return node ? { action: node.dataset.action, node } : null;
 }
 
-/* Remember which curriculum week accordion is open (survives re-renders). */
+/* Remember which curriculum / discussion week accordion is open. */
 app.addEventListener('toggle', (e) => {
   const details = e.target;
   if (!(details instanceof HTMLDetailsElement)) return;
-  if (!details.classList.contains('wk')) return;
-  if (details.open) {
+  if (details.classList.contains('wk') && details.open) {
     const wk = details.dataset.week;
     curricOpenWeek = wk != null ? Number(wk) : null;
+  }
+  if (details.classList.contains('disc-week') && details.open) {
+    const wk = details.dataset.week;
+    disc.openWeek = wk != null ? Number(wk) : null;
+    disc.postWeek = disc.openWeek;
   }
 }, true);
 
@@ -3269,6 +3396,10 @@ app.addEventListener('click', async (e) => {
     }
     case 'reply-post': {
       disc.replyToId = d.id || null;
+      if (d.week) {
+        disc.postWeek = Number(d.week);
+        disc.openWeek = Number(d.week);
+      }
       disc.focusAfterRender = true;
       render();
       break;
@@ -3276,6 +3407,43 @@ app.addEventListener('click', async (e) => {
     case 'cancel-reply': {
       disc.replyToId = null;
       disc.focusAfterRender = true;
+      render();
+      break;
+    }
+    case 'save-disc-week': {
+      const week = Number(d.week);
+      if (!week) break;
+      const ta = document.querySelector(`textarea[data-action="disc-week-prompt"][data-week="${week}"]`);
+      const text = ta ? ta.value : '';
+      store.updateCurriculumWeek(week, { discussion: text });
+      disc.openWeek = week;
+      toast(`Week ${week} discussion prompt saved ✓`);
+      render();
+      break;
+    }
+    case 'toggle-disc-publish': {
+      const week = Number(d.week);
+      if (!week) break;
+      const w = (store.getCurriculum().weeks || []).find((x) => Number(x.week) === week);
+      if (!w) break;
+      // Persist any unsaved prompt text before publishing
+      const ta = document.querySelector(`textarea[data-action="disc-week-prompt"][data-week="${week}"]`);
+      if (ta) store.updateCurriculumWeek(week, { discussion: ta.value });
+      const nextLive = !isDiscussionLive(w);
+      // Publishing discussion also needs the syllabus week visible to students
+      const updates = { discussionPublished: nextLive };
+      if (nextLive && w.pending) updates.pending = false;
+      if (nextLive && !String(w.discussion || ta?.value || '').trim()) {
+        toast('Add a discussion prompt before publishing');
+        break;
+      }
+      store.updateCurriculumWeek(week, updates);
+      disc.openWeek = week;
+      toast(
+        nextLive
+          ? `Week ${week} discussion is live for students ✓`
+          : `Week ${week} discussion taken offline`
+      );
       render();
       break;
     }
@@ -4072,14 +4240,17 @@ app.addEventListener('submit', async (e) => {
     return;
   }
 
-  if (form.id === 'discForm') {
+  if (form.classList?.contains('discForm') || form.dataset?.form === 'disc' || form.id === 'discForm') {
     const user = currentUser();
-    const body = form.body.value.trim();
+    const body = form.body?.value?.trim() || '';
     if (!body) return;
     const parentId = disc.replyToId || null;
-    store.addDiscussionPost(user, body, parentId);
+    const week = Number(form.dataset.week || form.week?.value || disc.postWeek) || null;
+    store.addDiscussionPost(user, body, parentId, week);
     disc.draft = '';
     disc.replyToId = null;
+    disc.postWeek = week;
+    disc.openWeek = week;
     disc.focusAfterRender = true;
     render();
     return;
@@ -4242,7 +4413,11 @@ app.addEventListener('input', (e) => {
 
 /* Enter posts the message; Shift+Enter inserts a newline (chat convention). */
 app.addEventListener('keydown', (e) => {
-  if (e.target.id === 'discInput' && e.key === 'Enter' && !e.shiftKey) {
+  if (
+    e.target.matches?.('textarea[data-action="disc-input"]') &&
+    e.key === 'Enter' &&
+    !e.shiftKey
+  ) {
     e.preventDefault();
     e.target.closest('form')?.requestSubmit();
   }

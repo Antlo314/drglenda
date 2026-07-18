@@ -65,6 +65,16 @@ function loadLocal() {
           Object.assign(w2, structuredClone(def2));
           dirty = true;
         }
+        // Week 2 two-part discussion prompt (admin-editable)
+        if (w2 && def2?.discussion && (!w2.discussion || !/Part\s*1\./i.test(w2.discussion))) {
+          w2.discussion = def2.discussion;
+          w2.discussionPublished = true;
+          dirty = true;
+        }
+        if (w2 && w2.discussionPublished === undefined) {
+          w2.discussionPublished = true;
+          dirty = true;
+        }
       }
       // Migration: ensure Week 2 curriculum quiz exists as a My Tests entry
       if (Array.isArray(parsed.quizzes) && !parsed.quizzes.some((q) => q.id === 'qw2')) {
@@ -271,6 +281,7 @@ const mapPost = (r) => ({
   id: r.id, authorId: r.author_id, authorName: r.author_name || 'Student',
   authorRole: r.author_role || 'student', body: r.body || '', createdAt: r.created_at,
   parentId: r.parent_id || null,
+  week: r.week != null && r.week !== '' ? Number(r.week) : null,
 });
 const mapSubmission = (r) => ({
   type: r.type, status: r.status, score: r.score, total: r.total,
@@ -387,6 +398,11 @@ export async function hydrate(user) {
       defW2.pending === false
     ) {
       Object.assign(remoteW2, structuredClone(defW2));
+    }
+    // Ensure Week 2 has the two-part discussion prompt when missing/outdated
+    if (remoteW2 && defW2?.discussion && (!remoteW2.discussion || !/Part\s*1\./i.test(remoteW2.discussion))) {
+      remoteW2.discussion = defW2.discussion;
+      if (remoteW2.discussionPublished === undefined) remoteW2.discussionPublished = true;
     }
   } else {
     const errMsg =
@@ -1850,6 +1866,7 @@ export function updateCurriculumWeek(weekNum, updates) {
   if (updates.steps !== undefined) w.steps = toLines(updates.steps);
   if (updates.assignment !== undefined) w.assignment = String(updates.assignment).trim();
   if (updates.discussion !== undefined) w.discussion = String(updates.discussion).trim();
+  if (updates.discussionPublished !== undefined) w.discussionPublished = !!updates.discussionPublished;
   if (updates.quiz !== undefined) w.quiz = toLines(updates.quiz);
 
   // Publishing a week: if they uncheck "coming soon", ensure content arrays exist
@@ -2072,18 +2089,29 @@ export function deleteMaterial(id) {
    CLASS DISCUSSION — a shared student-to-student board (realtime in Supabase)
    ======================================================================== */
 /** Post a message (or reply) to the class board. Optimistic: shows immediately,
- *  then reconciles the temp id + timestamp with the row the database returns. */
-export function addDiscussionPost(user, body, parentId = null) {
+ *  then reconciles the temp id + timestamp with the row the database returns.
+ *  @param {object} user
+ *  @param {string} body
+ *  @param {string|null} parentId
+ *  @param {number|null} week  curriculum week number for this prompt thread
+ */
+export function addDiscussionPost(user, body, parentId = null, week = null) {
   const text = String(body || '').trim();
   if (!text || !user) return { ok: false, error: 'Write a message first.' };
   // Only allow reply-to real posts (not nested under another reply more than 1 level).
   let resolvedParent = parentId || null;
+  let weekNum = week != null && week !== '' ? Number(week) : null;
   if (resolvedParent) {
     const parent = (state.discussion || []).find((p) => p.id === resolvedParent);
     if (!parent) resolvedParent = null;
     // Collapse deep threads: reply-to-reply attaches to the root parent.
     else if (parent.parentId) resolvedParent = parent.parentId;
+    // Inherit week from parent thread when replying
+    if (parent && parent.week != null && !Number.isFinite(weekNum)) {
+      weekNum = Number(parent.week);
+    }
   }
+  if (!Number.isFinite(weekNum) || weekNum < 1) weekNum = null;
   const tempId = `d-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const local = {
     id: tempId,
@@ -2093,6 +2121,7 @@ export function addDiscussionPost(user, body, parentId = null) {
     body: text,
     createdAt: new Date().toISOString(),
     parentId: resolvedParent,
+    week: weekNum,
   };
   const next = structuredClone(state);
   (next.discussion ??= []).push(local);
@@ -2110,6 +2139,7 @@ export function addDiscussionPost(user, body, parentId = null) {
   if (resolvedParent && !String(resolvedParent).startsWith('d-')) {
     insertRow.parent_id = resolvedParent;
   }
+  if (weekNum != null) insertRow.week = weekNum;
   Promise.resolve(
     supabase
       .from('discussion_posts')
@@ -2120,6 +2150,35 @@ export function addDiscussionPost(user, body, parentId = null) {
     .then(({ data, error }) => {
       if (error) {
         // Roll back optimistic post so the UI never lies about a failed send.
+        // If `week` column missing, retry without it so posts still work.
+        const msg = String(error.message || error || '');
+        if (weekNum != null && /week|column|schema cache/i.test(msg)) {
+          const retry = { ...insertRow };
+          delete retry.week;
+          Promise.resolve(
+            supabase.from('discussion_posts').insert(retry).select().single()
+          ).then(({ data: d2, error: e2 }) => {
+            if (e2 || !d2) {
+              const cur = structuredClone(state);
+              cur.discussion = (cur.discussion || []).filter((p) => p.id !== tempId);
+              set(cur);
+              reportError(e2 || error);
+              return;
+            }
+            const cur = structuredClone(state);
+            const row = (cur.discussion || []).find((p) => p.id === tempId);
+            if (row) {
+              row.id = d2.id;
+              row.createdAt = d2.created_at || row.createdAt;
+              row.authorName = d2.author_name || row.authorName;
+              row.authorRole = d2.author_role || row.authorRole;
+              row.parentId = d2.parent_id || row.parentId || null;
+              row.week = weekNum;
+            }
+            set(cur);
+          });
+          return;
+        }
         const cur = structuredClone(state);
         cur.discussion = (cur.discussion || []).filter((p) => p.id !== tempId);
         set(cur);
@@ -2135,6 +2194,7 @@ export function addDiscussionPost(user, body, parentId = null) {
         row.authorName = data.author_name || row.authorName;
         row.authorRole = data.author_role || row.authorRole;
         row.parentId = data.parent_id || row.parentId || null;
+        if (data.week != null) row.week = Number(data.week);
       }
       set(cur);
     })

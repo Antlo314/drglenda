@@ -40,6 +40,7 @@ export const CURRICULUM = {
       assignment: 'Create a one-page Business Vision Plan.',
       discussion:
         'What motivated you to become an entrepreneur, and what challenges do you anticipate facing?',
+      discussionPublished: true,
       quiz: [
         'What is a growth mindset?',
         'Why is goal setting important in business?',
@@ -77,7 +78,8 @@ export const CURRICULUM = {
       assignment:
         'Complete a one-page Business Structure Plan: chosen entity type, why it fits, EIN status, bank account status, and next three legal steps.',
       discussion:
-        'Which business structure did you choose (or are considering), and what risk or tax factor influenced that decision most?',
+        'Part 1. Many entrepreneurs start businesses without understanding the legal structure they need. In your opinion, should all entrepreneurs establish an LLC before launching their business? Why or why not? Support your response with examples.\n\nPart 2. Which business structure did you choose (or are considering), and what risk or tax factor influenced that decision most?',
+      discussionPublished: true,
       quiz: [
         'What is the main liability difference between a sole proprietorship and an LLC?',
         'Why do funders care whether personal and business finances are separated?',

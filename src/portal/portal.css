@@ -3165,6 +3165,92 @@ button.nav-item:disabled {
   overflow-wrap: anywhere;
 }
 
+/* Week-by-week discussion board */
+.disc-weeks {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.disc-week {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel, #fff);
+  overflow: hidden;
+}
+.disc-week-offline {
+  opacity: 0.96;
+}
+.disc-week-sum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 14px 16px;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 600;
+}
+.disc-week-sum::-webkit-details-marker { display: none; }
+.disc-week-title {
+  flex: 1;
+  min-width: 140px;
+  color: var(--ink);
+}
+.disc-week-count { font-weight: 500; font-size: 0.86rem; }
+.disc-week-body {
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--line);
+}
+.disc-week-admin {
+  padding: 14px 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.disc-week-admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.disc-prompt-edit {
+  width: 100%;
+  min-height: 120px;
+  box-sizing: border-box;
+  font: inherit;
+  line-height: 1.5;
+  padding: 12px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+}
+.disc-prompt-edit:focus {
+  outline: none;
+  border-color: var(--maroon);
+  box-shadow: 0 0 0 3px rgba(92, 15, 28, 0.12);
+}
+.disc-prompt-week {
+  margin: 14px 0 12px;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, #fffaf0, #fff7e8);
+  border: 1px solid rgba(201, 162, 74, 0.35);
+  border-radius: var(--radius-sm);
+}
+.disc-prompt-body {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  line-height: 1.55;
+  color: var(--ink);
+}
+.disc-feed-week {
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 8px 0 4px;
+}
+.disc-empty-sm { padding: 28px 16px; }
+.disc-offline-note { padding: 8px 0 4px; }
+
 .disc-empty {
   text-align: center;
   padding: 48px 20px;
