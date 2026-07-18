@@ -1532,6 +1532,8 @@ function quizView(user) {
           )
           .join('')}
       </section>`;
+
+    // After grading only: lock answers and show score. Until then always a blank editable form.
     if (sub && sub.status === 'graded') {
       return `${head}
       <section class="panel result-panel">
@@ -1541,34 +1543,30 @@ function quizView(user) {
       </section>
       ${qaBlock(sub.answers)}`;
     }
-    if (sub && sub.status === 'submitted') {
-      return `${head}
-      <section class="panel"><div class="pending-banner">⏳ Submitted ${fmtDateTime(sub.submittedAt) || fmtDate(sub.submittedAt)} — waiting for your instructor to grade.</div></section>
-      ${qaBlock(sub.answers)}`;
-    }
-    // Blank form for students who have not submitted yet (local draft optional)
-    const draftW = user.role === 'student' ? loadQuizDraft(user.id, q.id) : null;
-    const draftAnswers = draftW?.answers || {};
+
+    // QUESTIONS + blank editable answer boxes only (never show/pre-fill old answers)
+    const resubmitNote =
+      sub && sub.status === 'submitted'
+        ? `<p class="hint">Type your answers in the empty boxes below, then submit. Old answers are not displayed.</p>`
+        : `<p class="muted">Questions only — answer boxes are empty. Fill them in, then submit for grading.</p>`;
     return `${head}
-    <form id="writtenForm" data-quiz="${esc(q.id)}" class="panel quiz-form" data-draft="1" autocomplete="off">
-      <p class="muted">Answer boxes start <strong>blank</strong>. Write your own response for each question, then submit. Your instructor will grade your work.</p>
-      ${draftW ? `<p class="draft-hint" id="draftHint">Draft saved on this device · not submitted yet · <button type="button" class="btn btn-ghost btn-sm" data-action="clear-quiz-draft" data-quiz="${esc(q.id)}">Clear draft</button></p>` : `<p class="draft-hint muted" id="draftHint" hidden></p>`}
+    <form id="writtenForm" data-quiz="${esc(q.id)}" class="panel quiz-form" autocomplete="off">
+      ${resubmitNote}
       ${questions
-        .map(
-          (qq, i) => {
-            const fieldId = esc(qq.id);
-            const draftVal = draftAnswers[qq.id] ? esc(draftAnswers[qq.id]) : '';
-            return `<fieldset class="quiz-q">
+        .map((qq, i) => {
+          const fieldId = esc(qq.id);
+          return `<fieldset class="quiz-q">
         <legend class="quiz-q-prompt">${i + 1}. ${esc(qq.prompt)}</legend>
         <label class="quiz-answer-label" for="ans-${fieldId}">Your answer</label>
         <textarea id="ans-${fieldId}" name="${fieldId}" class="quiz-answer" rows="5"
-          placeholder="Type your answer here…" required autocomplete="off"
-          data-action="quiz-draft">${draftVal}</textarea>
+          placeholder="Type your answer here…" required autocomplete="off" spellcheck="true"
+          ></textarea>
       </fieldset>`;
-          }
-        )
+        })
         .join('')}
-      <button type="submit" class="btn btn-primary">Submit for review</button>
+      <button type="submit" class="btn btn-primary">${
+        sub && sub.status === 'submitted' ? 'Submit answers' : 'Submit for review'
+      }</button>
     </form>`;
   }
 
@@ -1670,19 +1668,31 @@ function studentTests(user) {
   }
   const rows = quizzes.map((q) => {
     const sub = store.getStudentSubmission(user.id, q.id);
-    const status = !sub
-      ? '<span class="pill pill-todo">Open — not started</span>'
-      : sub.status === 'graded'
+    const written = isWritten(q);
+    // Free-response tests stay fillable until graded — never lock on old answers
+    const status =
+      sub?.status === 'graded'
         ? '<span class="pill pill-done">Graded</span>'
-        : '<span class="pill pill-pending">Submitted — awaiting grade</span>';
+        : sub?.status === 'submitted' && !written
+          ? '<span class="pill pill-pending">Submitted — awaiting grade</span>'
+          : sub?.status === 'submitted' && written
+            ? '<span class="pill pill-todo">Open — answer below</span>'
+            : '<span class="pill pill-todo">Open — not started</span>';
     const score =
       sub?.status === 'graded' && sub.score != null
         ? q.type === 'auto'
           ? `${sub.score}%`
           : `${sub.score}/${q.maxScore || 100}`
         : '—';
-    const type = q.type === 'auto' ? 'Quiz' : isWritten(q) ? 'Test' : 'Assignment';
-    const cta = !sub ? 'Start (blank form)' : sub.status === 'graded' ? 'View results' : 'View submission';
+    const type = q.type === 'auto' ? 'Quiz' : written ? 'Test' : 'Assignment';
+    const cta =
+      sub?.status === 'graded'
+        ? 'View results'
+        : written
+          ? 'Answer questions'
+          : !sub
+            ? 'Start'
+            : 'View submission';
     return { q, sub, status, score, type, cta };
   });
 
@@ -1692,8 +1702,8 @@ function studentTests(user) {
     helpTitle: 'How My Tests works',
     helpSteps: [
       'Only tests marked Live by your instructor appear here.',
-      'Start a test — answer boxes are blank. Fill them in yourself, then submit.',
-      'Submitted work goes to your instructor for grading.',
+      'Open a test — you see the <strong>questions</strong> and blank answer boxes only.',
+      'Type your answers, submit, and your instructor grades them.',
     ],
   })}
   <section class="panel mobile-cards-only">

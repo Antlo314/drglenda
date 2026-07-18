@@ -953,10 +953,21 @@ export async function submitManual(studentId, quizId, answer, submittedAt) {
 }
 
 /** Written test: student submits a free-response answer for each question.
- *  Answers are keyed by question id; the test then enters the grading queue. */
+ *  Answers are keyed by question id; the test then enters the grading queue.
+ *  Students may resubmit (overwrite) until the instructor grades. */
 export async function submitWritten(studentId, quizId, answers, submittedAt) {
   const blocked = guardNotGraded(studentId, quizId);
   if (blocked) return blocked;
+  // Drop any empty keys so we never store junk as "old answers"
+  const cleaned = {};
+  Object.entries(answers || {}).forEach(([k, v]) => {
+    const t = String(v ?? '').trim();
+    if (t) cleaned[k] = t;
+  });
+  if (!Object.keys(cleaned).length) {
+    return { ok: false, error: 'Please fill in your answers before submitting.' };
+  }
+  answers = cleaned;
   const at = submittedAt || new Date().toISOString();
   const previous = state.progress[studentId]?.submissions?.[quizId]
     ? structuredClone(state.progress[studentId].submissions[quizId])
