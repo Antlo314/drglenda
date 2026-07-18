@@ -1481,9 +1481,14 @@ function sessionDetail(user) {
   </section>`;
 }
 
-/** A written test = a manual quiz made of free-response questions (no options). */
-const isWritten = (q) =>
-  !!q && q.type === 'manual' && Array.isArray(q.questions) && q.questions.length > 0;
+/** A written test = a manual quiz made of free-response questions (no MC options). */
+const isWritten = (q) => {
+  if (!q || q.type !== 'manual') return false;
+  const qs = Array.isArray(q.questions) ? q.questions : [];
+  if (!qs.length) return false;
+  // Treat as written when no question has multiple-choice options
+  return qs.every((qq) => !Array.isArray(qq.options) || qq.options.length === 0);
+};
 
 function quizView(user) {
   const q = store.getQuizById(route.params.id);
@@ -1494,7 +1499,8 @@ function quizView(user) {
     <section class="panel"><p class="muted">This test isn’t open yet. Your instructor will make it available when the class is ready.</p></section>`;
   }
   const written = isWritten(q);
-  const sub = store.getProgress(user.id).submissions?.[q.id];
+  // Only this student's own submission (never pre-fill from another student)
+  const sub = store.getProgress(user.id).submissions?.[q.id] || null;
   const sx = store.getSessionById(q.sessionId);
   const kind = q.type === 'auto' ? 'Quiz' : written ? 'Test' : 'Assignment';
   const back =
@@ -1510,9 +1516,14 @@ function quizView(user) {
 
   /* ---- written test (free-response, instructor-graded) ---- */
   if (written) {
+    const questions = q.questions || [];
+    if (!questions.length) {
+      return `${head}
+      <section class="panel"><p class="muted">This test has no questions yet. Check back after your instructor finishes it.</p></section>`;
+    }
     const qaBlock = (answers) => `
       <section class="panel"><div class="panel-head"><h2>Your answers</h2></div>
-        ${q.questions
+        ${questions
           .map(
             (qq, i) => `<div class="review-q">
               <p class="rq-prompt">${i + 1}. ${esc(qq.prompt)}</p>
@@ -1532,21 +1543,29 @@ function quizView(user) {
     }
     if (sub && sub.status === 'submitted') {
       return `${head}
-      <section class="panel"><div class="pending-banner">⏳ Submitted ${fmtDateTime(sub.submittedAt) || fmtDate(sub.submittedAt)} — saved for your instructor.</div></section>
+      <section class="panel"><div class="pending-banner">⏳ Submitted ${fmtDateTime(sub.submittedAt) || fmtDate(sub.submittedAt)} — waiting for your instructor to grade.</div></section>
       ${qaBlock(sub.answers)}`;
     }
-    const draftW = loadQuizDraft(user.id, q.id);
+    // Blank form for students who have not submitted yet (local draft optional)
+    const draftW = user.role === 'student' ? loadQuizDraft(user.id, q.id) : null;
     const draftAnswers = draftW?.answers || {};
     return `${head}
-    <form id="writtenForm" data-quiz="${q.id}" class="panel quiz-form" data-draft="1">
-      <p class="muted">Answer each question in your own words. Your instructor will review and grade your responses.</p>
-      ${draftW ? `<p class="draft-hint" id="draftHint">Draft saved on this device · not submitted yet</p>` : `<p class="draft-hint muted" id="draftHint" hidden></p>`}
-      ${q.questions
+    <form id="writtenForm" data-quiz="${esc(q.id)}" class="panel quiz-form" data-draft="1" autocomplete="off">
+      <p class="muted">Answer boxes start <strong>blank</strong>. Write your own response for each question, then submit. Your instructor will grade your work.</p>
+      ${draftW ? `<p class="draft-hint" id="draftHint">Draft saved on this device · not submitted yet · <button type="button" class="btn btn-ghost btn-sm" data-action="clear-quiz-draft" data-quiz="${esc(q.id)}">Clear draft</button></p>` : `<p class="draft-hint muted" id="draftHint" hidden></p>`}
+      ${questions
         .map(
-          (qq, i) => `<fieldset class="quiz-q">
-        <legend>${i + 1}. ${esc(qq.prompt)}</legend>
-        <textarea name="${qq.id}" rows="4" placeholder="Write your answer…" required data-action="quiz-draft">${esc(draftAnswers[qq.id] || '')}</textarea>
-      </fieldset>`
+          (qq, i) => {
+            const fieldId = esc(qq.id);
+            const draftVal = draftAnswers[qq.id] ? esc(draftAnswers[qq.id]) : '';
+            return `<fieldset class="quiz-q">
+        <legend class="quiz-q-prompt">${i + 1}. ${esc(qq.prompt)}</legend>
+        <label class="quiz-answer-label" for="ans-${fieldId}">Your answer</label>
+        <textarea id="ans-${fieldId}" name="${fieldId}" class="quiz-answer" rows="5"
+          placeholder="Type your answer here…" required autocomplete="off"
+          data-action="quiz-draft">${draftVal}</textarea>
+      </fieldset>`;
+          }
         )
         .join('')}
       <button type="submit" class="btn btn-primary">Submit for review</button>
@@ -1638,25 +1657,25 @@ function studentTests(user) {
   const quizzes = store.getVisibleQuizzes();
   if (!quizzes.length) {
     return `
-    ${pageHeadHelp('My Tests', 'Your quizzes and assignments across the program.', {
+    ${pageHeadHelp('My Tests', 'Published tests you complete and turn in for grading.', {
       helpId: 'student-tests',
       helpTitle: 'How My Tests works',
       helpSteps: [
         'Only tests your instructor has published appear here.',
-        'When a test opens, complete it and submit before any due date shown.',
-        'After grading, your score and feedback show on the same item.',
+        'Open a test — answer boxes start blank. Write your answers, then submit.',
+        'After you submit, your instructor grades it; scores and feedback show here.',
       ],
     })}
     <section class="panel"><div class="empty"><div class="empty-ico">📝</div><h3>No tests open yet</h3>
-      <p class="muted">Your instructor opens each test when the class is ready. Check back soon.</p></div></section>`;
+      <p class="muted">Your instructor publishes each test when the class is ready. Check back soon.</p></div></section>`;
   }
   const rows = quizzes.map((q) => {
     const sub = prog.submissions?.[q.id];
     const status = !sub
-      ? '<span class="pill pill-todo">Open</span>'
+      ? '<span class="pill pill-todo">Open — not started</span>'
       : sub.status === 'graded'
         ? '<span class="pill pill-done">Graded</span>'
-        : '<span class="pill pill-pending">Submitted</span>';
+        : '<span class="pill pill-pending">Submitted — awaiting grade</span>';
     const score =
       sub?.status === 'graded' && sub.score != null
         ? q.type === 'auto'
@@ -1664,18 +1683,18 @@ function studentTests(user) {
           : `${sub.score}/${q.maxScore || 100}`
         : '—';
     const type = q.type === 'auto' ? 'Quiz' : isWritten(q) ? 'Test' : 'Assignment';
-    const cta = !sub ? 'Start' : sub.status === 'graded' ? 'View' : 'View';
+    const cta = !sub ? 'Start (blank form)' : sub.status === 'graded' ? 'View results' : 'View submission';
     return { q, sub, status, score, type, cta };
   });
 
   return `
-  ${pageHeadHelp('My Tests', 'Your quizzes and assignments across the program.', {
+  ${pageHeadHelp('My Tests', 'Published tests you complete and turn in for grading.', {
     helpId: 'student-tests',
     helpTitle: 'How My Tests works',
     helpSteps: [
-      'Only tests your instructor has published appear here.',
-      'Open a test, answer every question, then submit.',
-      'Submitted work waits for grading; scores appear here when ready.',
+      'Only tests marked Live by your instructor appear here.',
+      'Start a test — answer boxes are blank. Fill them in yourself, then submit.',
+      'Submitted work goes to your instructor for grading.',
     ],
   })}
   <section class="panel mobile-cards-only">
@@ -3329,6 +3348,14 @@ app.addEventListener('click', async (e) => {
       render();
       break;
     }
+    case 'clear-quiz-draft': {
+      const user = currentUser();
+      if (!user || !d.quiz) break;
+      clearQuizDraft(user.id, d.quiz);
+      toast('Draft cleared — answer boxes are blank');
+      render();
+      break;
+    }
     case 'delete-quiz': {
       const q = store.getQuizById(d.id);
       if (!q) break;
@@ -3941,15 +3968,37 @@ app.addEventListener('submit', async (e) => {
   if (form.id === 'writtenForm') {
     const user = currentUser();
     const quiz = store.getQuizById(form.dataset.quiz);
+    if (!quiz) {
+      toast('Test not found — go back to My Tests and open it again');
+      return;
+    }
+    if (user.role !== 'student' && user.role !== 'admin') {
+      toast('Only students can submit tests');
+      return;
+    }
     const answers = {};
-    quiz.questions.forEach((q) => {
-      answers[q.id] = (form.elements[q.id]?.value || '').trim();
+    const questions = quiz.questions || [];
+    // Prefer FormData so field names with hyphens (qw2-1) always resolve
+    const fd = new FormData(form);
+    questions.forEach((qq) => {
+      const raw = fd.get(qq.id);
+      answers[qq.id] = String(raw != null ? raw : '').trim();
     });
+    // Fallback: scan textareas if FormData missed anything
+    form.querySelectorAll('textarea.quiz-answer, textarea[name]').forEach((ta) => {
+      const name = ta.getAttribute('name');
+      if (name && answers[name] === undefined) answers[name] = (ta.value || '').trim();
+    });
+    const missing = questions.filter((qq) => !answers[qq.id]);
+    if (missing.length) {
+      toast(`Please answer all questions (${missing.length} still blank)`);
+      return;
+    }
     const unbusy = setBusy(form, 'Submitting…');
     const res = await store.submitWritten(user.id, quiz.id, answers, nowISO());
     if (res.ok) {
       clearQuizDraft(user.id, quiz.id);
-      toast('Submitted · saved for your instructor ✓');
+      toast('Submitted · your instructor can grade it under Grading ✓');
       hideConnBanner();
       render();
     } else {

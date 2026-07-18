@@ -208,11 +208,44 @@ const mapSession = (r) => {
     playUrl: '', // filled with a signed URL during hydrate
   };
 };
-const mapQuiz = (r) => ({
-  id: r.id, sessionId: r.session_id, type: r.type, title: r.title,
-  maxScore: r.max_score, prompt: r.prompt, questions: r.questions || [],
-  published: !!r.published, due: d10(r.due_date),
-});
+/** Normalize free-response / auto question rows into a stable {id,prompt,...} shape. */
+export function normalizeQuestions(quizId, raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((q, i) => {
+      if (typeof q === 'string') {
+        const prompt = q.trim();
+        if (!prompt) return null;
+        return { id: `${quizId || 'q'}-${i + 1}`, prompt };
+      }
+      if (!q || typeof q !== 'object') return null;
+      const prompt = String(q.prompt ?? q.text ?? q.question ?? '').trim();
+      if (!prompt) return null;
+      const id = String(q.id || `${quizId || 'q'}-${i + 1}`);
+      const out = { id, prompt };
+      if (Array.isArray(q.options)) {
+        out.options = q.options;
+        if (q.correctIndex != null) out.correctIndex = q.correctIndex;
+      }
+      return out;
+    })
+    .filter(Boolean);
+}
+
+const mapQuiz = (r) => {
+  const id = r.id;
+  return {
+    id,
+    sessionId: r.session_id,
+    type: r.type,
+    title: r.title,
+    maxScore: r.max_score,
+    prompt: r.prompt,
+    questions: normalizeQuestions(id, r.questions || []),
+    published: !!r.published,
+    due: d10(r.due_date),
+  };
+};
 // A class material's `url` is either a normal URL (link/external) or a
 // 'storage:'-prefixed object path in the session-media bucket (a private file).
 const mapMaterial = (r) => {
@@ -472,7 +505,16 @@ export function getCurriculum() {
   return state.curriculum;
 }
 export const getQuizzes = () => state.quizzes;
-export const getQuizById = (id) => state.quizzes.find((q) => q.id === id) || null;
+export const getQuizById = (id) => {
+  const q = state.quizzes.find((x) => x.id === id) || null;
+  if (!q) return null;
+  // Always return normalized questions so student forms have stable field ids
+  const questions = normalizeQuestions(q.id, q.questions);
+  if (questions !== q.questions && questions.length !== (q.questions || []).length) {
+    return { ...q, questions };
+  }
+  return { ...q, questions };
+};
 export const getQuizzesForSession = (sid) => state.quizzes.filter((q) => q.sessionId === sid);
 
 /** Match a quiz to a curriculum week via linked session week or "Week N" in title. */

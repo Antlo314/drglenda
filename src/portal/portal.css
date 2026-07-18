@@ -1038,12 +1038,50 @@ body.side-nav-open { overflow: hidden; }
 
 /* quiz / results */
 .quiz-form { display: flex; flex-direction: column; gap: 22px; }
-.quiz-q { border: 0; }
-.quiz-q legend {
+.quiz-q {
+  border: 0;
+  margin: 0;
+  padding: 0 0 4px;
+  min-width: 0;
+}
+.quiz-q legend,
+.quiz-q-prompt {
   font-weight: 600;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   font-size: 1rem;
   color: var(--ink);
+  padding: 0;
+}
+.quiz-answer-label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted, #6b6560);
+  margin: 0 0 6px;
+}
+.quiz-form textarea.quiz-answer,
+.quiz-form .quiz-q textarea {
+  display: block;
+  width: 100%;
+  min-height: 110px;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.45;
+  resize: vertical;
+}
+.quiz-form textarea.quiz-answer:focus,
+.quiz-form .quiz-q textarea:focus {
+  outline: none;
+  border-color: var(--maroon);
+  box-shadow: 0 0 0 3px rgba(92, 15, 28, 0.12);
+}
+.quiz-form textarea.quiz-answer::placeholder {
+  color: #9a948c;
 }
 .opt-choice {
   display: flex;
