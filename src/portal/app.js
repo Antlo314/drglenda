@@ -4499,9 +4499,15 @@ app.addEventListener('submit', async (e) => {
     // Prefer update when a primary test already exists for this week
     const existing = store.findPrimaryWeekTest(week);
     if (existing) {
-      const replace = confirm(
-        `Week ${week} already has “${existing.title}”. Update that test with these questions? (Cancel to create a separate test.)`
-      );
+      const replace = adminConfirmDanger({
+        title: `Week ${week} already has “${existing.title}”`,
+        will: [
+          'Overwrite that test’s title, questions, due date, and publish state with what you just entered.',
+          'Student answers already submitted stay keyed by question id (new questions may show blank until re-answered).',
+        ],
+        note: ['Cancel (or choose No) to create a separate test instead of replacing.'],
+        severity: 'hard',
+      });
       if (replace) {
         const unbusy = setBusy(form, 'Saving…');
         const res = await store.updateWeeklyTest(existing.id, {
