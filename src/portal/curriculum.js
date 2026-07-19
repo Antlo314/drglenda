@@ -80,13 +80,11 @@ export const CURRICULUM = {
       discussion:
         'Part 1. Many entrepreneurs start businesses without understanding the legal structure they need. In your opinion, should all entrepreneurs establish an LLC before launching their business? Why or why not? Support your response with examples.\n\nPart 2. Which business structure did you choose (or are considering), and what risk or tax factor influenced that decision most?',
       discussionPublished: true,
+      // Multiple-choice stems + A–D options (parsed into real MC on the test form)
       quiz: [
-        'What is the main liability difference between a sole proprietorship and an LLC?',
-        'Why do funders care whether personal and business finances are separated?',
-        'What is an EIN and when do you need one?',
-        'Name two documents that typically prove your business is legally established.',
-        'What is one compliance or licensing step your business may need in your state or industry?',
-        'List the three next legal/administrative steps you will complete for your entity this week.',
+        'Which business structure provides the least liability protection?\nA. LLC\nB. Corporation\nC. Sole Proprietorship\nD. Nonprofit\nCorrect: C',
+        'What does LLC stand for?\nA. Limited Liability Company\nB. Legal Liability Corporation\nC. Limited Loan Company\nD. Licensed Liability Company\nCorrect: A',
+        'Which structure is often preferred by investors?\nA. Sole Proprietorship\nB. Corporation\nC. Partnership\nD. DBA\nCorrect: B',
       ],
     },
 

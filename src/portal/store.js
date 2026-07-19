@@ -1,12 +1,12 @@
 /* =============================================================================
-   UMOF Learning Portal — Store (dual-mode)
+   UMOF Learning Portal â€” Store (dual-mode)
    -----------------------------------------------------------------------------
    Reads are synchronous against an in-memory `state` cache, so every view in
    app.js stays unchanged. The cache is filled two ways:
 
-     • LOCAL DEMO mode  (no Supabase keys) — seeded from data.js, persisted to
+     â€¢ LOCAL DEMO mode  (no Supabase keys) â€” seeded from data.js, persisted to
        localStorage. Identical to the original prototype.
-     • SUPABASE mode    (keys in .env)     — hydrate(user) loads the rows this
+     â€¢ SUPABASE mode    (keys in .env)     â€” hydrate(user) loads the rows this
        user is allowed to see (enforced by RLS), mapped into the same shape.
 
    Mutations update the cache immediately (snappy UI) and, in Supabase mode,
@@ -17,6 +17,31 @@ import { USE_SUPABASE } from './config.js';
 import { supabase } from './supabase.js';
 import { SEED } from './data.js';
 import { CURRICULUM as DEFAULT_CURRICULUM } from './curriculum.js';
+import {
+  stripLeadingItemNumber,
+  parseStandaloneOptionPrompt,
+  coalesceSplitMcQuestions,
+  normalizeQuestions,
+  letterToIndex,
+  indexToLetter,
+  parseOptionsBlob,
+  parseQuestionBank,
+  serializeQuestions,
+  formatQuestionAnswer,
+} from './questionBank.js';
+
+export {
+  stripLeadingItemNumber,
+  parseStandaloneOptionPrompt,
+  coalesceSplitMcQuestions,
+  normalizeQuestions,
+  letterToIndex,
+  indexToLetter,
+  parseOptionsBlob,
+  parseQuestionBank,
+  serializeQuestions,
+  formatQuestionAnswer,
+};
 
 const KEY = 'umof_portal_v1';
 const listeners = new Set();
@@ -45,7 +70,7 @@ function loadLocal() {
         parsed.sessions = parsed.sessions.map((s) => ({ ...s, week: 1, date: '2026-07-06' }));
         dirty = true;
       }
-      // Migration: curriculum was previously a static module — fold into state
+      // Migration: curriculum was previously a static module â€” fold into state
       if (!parsed.curriculum || !Array.isArray(parsed.curriculum.weeks)) {
         parsed.curriculum = defaultCurriculum();
         dirty = true;
@@ -91,7 +116,7 @@ function loadLocal() {
             type: 'manual',
             published: true,
             due: '2026-07-20',
-            title: 'Week 2 Test — Business Structure & Legal Foundation',
+            title: 'Week 2 Test â€” Business Structure & Legal Foundation',
             maxScore: 100,
             questions: prompts.map((prompt, i) =>
               typeof prompt === 'string'
@@ -100,6 +125,34 @@ function loadLocal() {
             ),
           });
           dirty = true;
+        }
+      }
+      // Migration: merge A/B/C/D lines that were saved as separate free-response questions
+      if (Array.isArray(parsed.quizzes)) {
+        for (const q of parsed.quizzes) {
+          if (!q?.id || !Array.isArray(q.questions) || q.questions.length < 3) continue;
+          const before = q.questions.length;
+          const fixed = coalesceSplitMcQuestions(
+            q.questions.map((qq, i) =>
+              typeof qq === 'string'
+                ? { id: `${q.id}-${i + 1}`, prompt: qq }
+                : { id: qq.id || `${q.id}-${i + 1}`, prompt: qq.prompt || '', options: qq.options }
+            ),
+            q.id
+          );
+          const optionRows = q.questions.filter((qq) =>
+            parseStandaloneOptionPrompt(typeof qq === 'string' ? qq : qq?.prompt)
+          ).length;
+          if (fixed.length < before && optionRows >= 2) {
+            q.questions = fixed;
+            const allMc =
+              fixed.length > 0 &&
+              fixed.every((qq) => Array.isArray(qq.options) && qq.options.length >= 2);
+            const allKeyed =
+              allMc && fixed.every((qq) => qq.correctIndex != null && Number.isFinite(Number(qq.correctIndex)));
+            if (allKeyed) q.type = 'auto';
+            dirty = true;
+          }
         }
       }
       // Migration: restore Week 1 (12 Q) + Week 2 (6 Q) catalog when stale/short
@@ -208,7 +261,7 @@ function reportError(e, { quiet = false } = {}) {
   errorHandler?.(e);
 }
 /** Fire-and-forget a Supabase write; surface errors via the error handler.
- *  Takes a THUNK so `supabase.from(...)` is only evaluated when connected —
+ *  Takes a THUNK so `supabase.from(...)` is only evaluated when connected â€”
  *  in demo mode `supabase` is null and must never be touched. */
 function push(queryFn, { quiet = false } = {}) {
   if (!USE_SUPABASE || !supabase) return Promise.resolve({ ok: true });
@@ -260,9 +313,9 @@ export function resetDemo() {
 }
 
 /* ===========================================================================
-   HYDRATE — fill the cache from Supabase for the signed-in user
+   HYDRATE â€” fill the cache from Supabase for the signed-in user
    ======================================================================== */
-const d10 = (v) => (v ? String(v).slice(0, 10) : v); // timestamptz/date → YYYY-MM-DD
+const d10 = (v) => (v ? String(v).slice(0, 10) : v); // timestamptz/date â†’ YYYY-MM-DD
 
 const STORAGE_PREFIX = 'storage:'; // a sessions.video_url pointing at our bucket
 const mapSession = (r) => {
@@ -272,234 +325,13 @@ const mapSession = (r) => {
     durationMin: r.duration_min, thumb: r.thumb, videoUrl: r.video_url,
     summary: r.summary, notes: r.notes || [],
     meetUrl: r.meet_url || '', liveAt: r.live_at || '',
-    // Missing column (pre-migration) → treat as published so nothing vanishes
+    // Missing column (pre-migration) â†’ treat as published so nothing vanishes
     published: r.published !== false && r.published !== null,
     isFile,
     storagePath: isFile ? r.video_url.slice(STORAGE_PREFIX.length) : null,
     playUrl: '', // filled with a signed URL during hydrate
   };
 };
-/** Normalize free-response / auto question rows into a stable {id,prompt,...} shape. */
-export function normalizeQuestions(quizId, raw) {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((q, i) => {
-      if (typeof q === 'string') {
-        // May be a multi-line block with A/B/C/D options
-        const parsed = parseQuestionBank(q);
-        if (parsed.length === 1) {
-          return { id: `${quizId || 'q'}-${i + 1}`, ...parsed[0] };
-        }
-        const prompt = q.trim();
-        if (!prompt) return null;
-        return { id: `${quizId || 'q'}-${i + 1}`, prompt };
-      }
-      if (!q || typeof q !== 'object') return null;
-      const prompt = String(q.prompt ?? q.text ?? q.question ?? '').trim();
-      if (!prompt) return null;
-      const id = String(q.id || `${quizId || 'q'}-${i + 1}`);
-      const out = { id, prompt };
-      let options = Array.isArray(q.options) ? q.options.map((o) => String(o).trim()).filter(Boolean) : null;
-      // Choices sometimes arrive as "a,b,c,d" or "A) … B) …" in a single field
-      if ((!options || !options.length) && (q.choices || q.answers || q.optionsText)) {
-        options = parseOptionsBlob(q.choices || q.answers || q.optionsText);
-      }
-      if (options?.length) {
-        out.options = options;
-        if (q.correctIndex != null && q.correctIndex !== '') {
-          out.correctIndex = Number(q.correctIndex);
-        } else if (q.correct != null || q.answer != null || q.key != null) {
-          const ci = letterToIndex(q.correct ?? q.answer ?? q.key, options.length);
-          if (ci != null) out.correctIndex = ci;
-        }
-      }
-      return out;
-    })
-    .filter(Boolean);
-}
-
-/** A→0, B→1, … or 1→0 based numbering */
-export function letterToIndex(letter, optionCount = 26) {
-  if (letter == null || letter === '') return null;
-  const s = String(letter).trim();
-  if (/^\d+$/.test(s)) {
-    const n = Number(s);
-    // 1-based if looks like 1..n, else 0-based
-    if (n >= 1 && n <= optionCount) return n - 1;
-    if (n >= 0 && n < optionCount) return n;
-    return null;
-  }
-  const ch = s.replace(/[^A-Za-z]/g, '').charAt(0);
-  if (!ch) return null;
-  const idx = ch.toUpperCase().charCodeAt(0) - 65;
-  if (idx < 0 || idx >= optionCount) return null;
-  return idx;
-}
-
-export function indexToLetter(i) {
-  if (i == null || !Number.isFinite(Number(i)) || Number(i) < 0) return '';
-  return String.fromCharCode(65 + Number(i));
-}
-
-/** Parse "a) foo, b) bar" or "a,b,c,d" or lines of A. / A) options. */
-export function parseOptionsBlob(raw) {
-  const text = String(raw ?? '').trim();
-  if (!text) return [];
-  // Multi-line options
-  if (/\n/.test(text)) {
-    const opts = [];
-    for (const line of text.split(/\r?\n/)) {
-      const m = line.trim().match(/^\s*(?:\(?([A-Da-d])\)|[A-Da-d]|[1-9])[\)\.\:\-\s]\s*(.+)$/);
-      if (m) opts.push((m[2] || m[1] || '').trim());
-      else if (line.trim()) opts.push(line.trim());
-    }
-    return opts.filter(Boolean);
-  }
-  // Single line: A) x  B) y  or a) x, b) y
-  const labeled = [...text.matchAll(/(?:^|[\s,;])(?:\(?([A-Da-d])\)|([A-Da-d]))[\)\.\:\-]\s*([^,;]+)/gi)];
-  if (labeled.length >= 2) {
-    return labeled.map((m) => String(m[3] || '').trim()).filter(Boolean);
-  }
-  // Bare "a, b, c, d" → treat each segment as option text (or letter-only labels)
-  if (text.includes(',')) {
-    return text
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((s) => s.replace(/^[A-Da-d][\)\.\:\-\s]+/i, '').trim() || s);
-  }
-  return [];
-}
-
-/**
- * Parse admin question bank text into structured questions.
- *
- * Free-response:
- *   What is a growth mindset?
- *
- * Multiple choice (options follow the question):
- *   What is a growth mindset?
- *   A. Believing skills improve with practice
- *   B. Talent is fixed
- *   C. Avoid hard work
- *   D. Ignore feedback
- *   Correct: A
- *
- * Also accepts a) / A) / 1. labels and blank-line separators.
- */
-export function parseQuestionBank(text) {
-  const lines = String(text ?? '').split(/\r?\n/);
-  const questions = [];
-  let cur = null;
-
-  const optionLine = (t) => {
-    // A. text | A) text | (A) text | a - text | 1. text
-    let m = t.match(/^\s*([A-Da-d])\s*[\)\.\:\-]\s+(.+)$/);
-    if (m) return { letter: m[1].toUpperCase(), text: m[2].trim() };
-    m = t.match(/^\s*\(([A-Da-d])\)\s+(.+)$/);
-    if (m) return { letter: m[1].toUpperCase(), text: m[2].trim() };
-    m = t.match(/^\s*([1-9])\s*[\)\.\:\-]\s+(.+)$/);
-    if (m) return { letter: indexToLetter(Number(m[1]) - 1) || m[1], text: m[2].trim() };
-    return null;
-  };
-  const correctLine = (t) => {
-    let m = t.match(/^\s*(?:correct|answer|key)\s*[:=]\s*\**\s*([A-Da-d1-9])\s*\**\s*$/i);
-    if (m) return m[1];
-    m = t.match(/^\s*\*\s*([A-Da-d1-9])\s*$/);
-    if (m) return m[1];
-    return null;
-  };
-
-  const flush = () => {
-    if (!cur?.prompt) {
-      cur = null;
-      return;
-    }
-    const q = { prompt: cur.prompt };
-    if (cur.options?.length >= 2) {
-      q.options = cur.options;
-      if (cur.correctLetter != null) {
-        const ci = letterToIndex(cur.correctLetter, cur.options.length);
-        if (ci != null) q.correctIndex = ci;
-      }
-    }
-    questions.push(q);
-    cur = null;
-  };
-
-  for (const raw of lines) {
-    const t = raw.trim();
-    if (!t) {
-      // Blank line ends a multiple-choice block (keeps free-response as single lines too)
-      if (cur?.options?.length) flush();
-      continue;
-    }
-    const key = correctLine(t);
-    if (key != null && cur) {
-      cur.correctLetter = key;
-      continue;
-    }
-    const opt = optionLine(t);
-    if (opt && cur) {
-      cur.options = cur.options || [];
-      // Fill gaps if letters skip (rare)
-      cur.options.push(opt.text);
-      continue;
-    }
-    // One-line MC: "Question? a) x b) y c) z d) w"
-    const inline = t.match(/^(.*?\?)\s+((?:\(?[A-Da-d]\)?[\)\.\:\-]\s*.+))$/i);
-    if (inline) {
-      flush();
-      const prompt = inline[1].trim();
-      const opts = parseOptionsBlob(inline[2]);
-      if (opts.length >= 2) {
-        questions.push({ prompt, options: opts });
-        cur = null;
-        continue;
-      }
-    }
-    // New question prompt
-    flush();
-    cur = { prompt: t, options: [] };
-  }
-  flush();
-  return questions;
-}
-
-/** Serialize questions back to admin textarea format. */
-export function serializeQuestions(questions) {
-  if (!Array.isArray(questions)) return '';
-  return questions
-    .map((q) => {
-      const prompt = typeof q === 'string' ? q : q?.prompt || '';
-      if (!prompt) return '';
-      const opts = typeof q === 'object' && Array.isArray(q.options) ? q.options : null;
-      if (!opts?.length) return prompt;
-      const lines = [prompt];
-      opts.forEach((o, i) => lines.push(`${indexToLetter(i)}. ${o}`));
-      if (q.correctIndex != null && q.correctIndex !== '') {
-        lines.push(`Correct: ${indexToLetter(Number(q.correctIndex))}`);
-      }
-      return lines.join('\n');
-    })
-    .filter(Boolean)
-    .join('\n\n');
-}
-
-/** Human-readable answer for grading / My Tests review. */
-export function formatQuestionAnswer(qq, raw) {
-  if (raw == null || raw === '') return '—';
-  const opts = Array.isArray(qq?.options) ? qq.options : [];
-  if (opts.length) {
-    let idx = typeof raw === 'number' ? raw : Number(raw);
-    if (!Number.isFinite(idx)) idx = letterToIndex(raw, opts.length);
-    if (idx != null && opts[idx] != null) {
-      return `${indexToLetter(idx)}. ${opts[idx]}`;
-    }
-  }
-  return String(raw);
-}
-
 const mapQuiz = (r) => {
   const id = r.id;
   return {
@@ -532,7 +364,7 @@ const mapProfile = (r) => ({
   grantAwarded: !!r.grant_awarded, grantAmount: Number(r.grant_amount) || 0,
 });
 // A class-discussion post. `author_name`/`author_role` are denormalized on the
-// row (set server-side) so every classmate can see who wrote it — students can't
+// row (set server-side) so every classmate can see who wrote it â€” students can't
 // read each other's `profiles` rows under RLS.
 // `parent_id` is null for top-level posts; set for replies (threaded board).
 const mapPost = (r) => ({
@@ -588,7 +420,7 @@ function curriculumPayload(c) {
 }
 
 function persistCurriculum(c) {
-  // When the curriculum table is missing, keep edits in the client cache only —
+  // When the curriculum table is missing, keep edits in the client cache only â€”
   // do not spam connection errors on every field change.
   if (USE_SUPABASE && !curriculumBackendOk) return;
   push(() => supabase.from('curriculum').upsert(curriculumPayload(c), { onConflict: 'id' }), {
@@ -602,7 +434,7 @@ async function persistCurriculumAsync(c) {
   if (!curriculumBackendOk) {
     return {
       ok: false,
-      error: 'Syllabus table missing — run supabase/curriculum.sql in Supabase SQL Editor',
+      error: 'Syllabus table missing â€” run supabase/curriculum.sql in Supabase SQL Editor',
     };
   }
   const res = await writeThrough(
@@ -629,7 +461,7 @@ export async function hydrate(user) {
   const next = emptyState();
   const isAdmin = user.role === 'admin';
 
-  // course content — visible to everyone authenticated
+  // course content â€” visible to everyone authenticated
   const [{ data: sessions }, { data: quizzes }, curricRes] = await Promise.all([
     supabase.from('sessions').select('*'),
     supabase.from('quizzes').select('*'),
@@ -684,7 +516,7 @@ export async function hydrate(user) {
     });
   }
 
-  // class materials (resell-ready content library) — visible to all authenticated
+  // class materials (resell-ready content library) â€” visible to all authenticated
   const { data: materials } = await supabase.from('class_materials').select('*');
   next.materials = (materials || []).map(mapMaterial);
   const fileMaterials = next.materials.filter((m) => m.isFile && m.storagePath);
@@ -697,7 +529,7 @@ export async function hydrate(user) {
     });
   }
 
-  // class discussion board — visible to every authenticated user (student + admin)
+  // class discussion board â€” visible to every authenticated user (student + admin)
   const { data: posts } = await supabase
     .from('discussion_posts')
     .select('*')
@@ -725,7 +557,7 @@ export async function hydrate(user) {
   (completions || []).forEach((c) => ensure(c.profile_id).completed.push(c.session_id));
   (submissions || []).forEach((s) => (ensure(s.profile_id).submissions[s.quiz_id] = mapSubmission(s)));
 
-  // CRM leads + approved-student allowlist — admin only
+  // CRM leads + approved-student allowlist â€” admin only
   if (isAdmin) {
     const { data: leads } = await supabase.from('leads').select('*');
     next.leads = (leads || []).map((l) => ({
@@ -831,7 +663,7 @@ const byDue = (a, b) =>
   String(a.due || '9999-12-31').localeCompare(String(b.due || '9999-12-31')) ||
   String(a.title).localeCompare(String(b.title));
 
-/** Discussion participation grades (admin Grading only — not My Tests). */
+/** Discussion participation grades (admin Grading only â€” not My Tests). */
 export function isDiscussionGradeQuizId(id) {
   return /^qdisc-w\d+$/i.test(String(id || ''));
 }
@@ -903,7 +735,7 @@ export const getVisibleQuizzesForWeek = (weekNum) =>
 export const getLeads = () =>
   [...state.leads].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 
-/** The class discussion feed, oldest → newest (the view pins to the latest). */
+/** The class discussion feed, oldest â†’ newest (the view pins to the latest). */
 export const getDiscussion = () =>
   [...(state.discussion || [])].sort((a, b) =>
     String(a.createdAt).localeCompare(String(b.createdAt))
@@ -914,9 +746,9 @@ export function getProgress(studentId) {
 }
 
 /**
- * Whether a submission still counts for this quiz’s current questions.
+ * Whether a submission still counts for this quizâ€™s current questions.
  * Stale rows (wrong question ids / empty answers after a test rewrite) are ignored
- * so students get a blank form instead of “Submitted” with old/wrong answers.
+ * so students get a blank form instead of â€œSubmittedâ€ with old/wrong answers.
  */
 export function submissionAppliesToQuiz(sub, quiz) {
   if (!sub || !quiz) return false;
@@ -994,7 +826,7 @@ export async function restoreSubmissionFromArchive(archiveId) {
 }
 
 /**
- * Admin: delete a student’s submission so they get a blank form again.
+ * Admin: delete a studentâ€™s submission so they get a blank form again.
  * Live row is removed; SQL failsafe keeps a copy in submission_archive (if installed).
  * Also clears any matching local demo progress.
  */
@@ -1028,7 +860,7 @@ export async function clearSubmission(studentId, quizId) {
   return { ok: true, cleared: had };
 }
 
-/** Admin: clear every student’s work for one test (all get blank forms again). */
+/** Admin: clear every studentâ€™s work for one test (all get blank forms again). */
 export async function clearAllSubmissionsForQuiz(quizId) {
   if (!quizId) return { ok: false, error: 'Missing test id', count: 0 };
   const snapshot = {};
@@ -1229,7 +1061,7 @@ export async function refreshProgress() {
 }
 
 /* ===========================================================================
-   WRITES — update cache immediately, then persist (Supabase mode)
+   WRITES â€” update cache immediately, then persist (Supabase mode)
    ======================================================================== */
 export function setSessionComplete(studentId, sessionId, complete) {
   const next = structuredClone(state);
@@ -1286,7 +1118,7 @@ export async function submitAutoQuiz(studentId, quizId, answers, submittedAt) {
     : undefined;
   const next = structuredClone(state);
   next.progress[studentId] ??= { completed: [], submissions: {} };
-  const gradeDerivation = `Auto-scored: ${correct} of ${total} questions correct → ${score}%. Formula: (correct ÷ total) × 100, rounded.`;
+  const gradeDerivation = `Auto-scored: ${correct} of ${total} questions correct â†’ ${score}%. Formula: (correct Ã· total) Ã— 100, rounded.`;
   next.progress[studentId].submissions[quizId] = {
     type: 'auto', score, total, correct, status: 'graded', submittedAt: at, answers,
     scoringMethod: 'auto', gradeDerivation, gradedAt: at,
@@ -1419,7 +1251,7 @@ export async function createWeeklyTest(opts = {}) {
   }
 
   // Link to a session in that week when possible (for student session detail + week hub).
-  // Never fall back to another week's session — title matching still associates the week.
+  // Never fall back to another week's session â€” title matching still associates the week.
   const weekSessions = getSessionsForWeek(weekNum);
   let sessionId = opts.sessionId;
   if (sessionId === undefined) {
@@ -1600,7 +1432,7 @@ export async function pushCurriculumQuizToTest(weekNum, opts = {}) {
 
   const title =
     String(opts.title || '').trim() ||
-    `Week ${wNum} Test — ${week.title || ''}`.replace(/\s+—\s*$/, '').trim() ||
+    `Week ${wNum} Test â€” ${week.title || ''}`.replace(/\s+â€”\s*$/, '').trim() ||
     `Week ${wNum} Test`;
 
   const existing = findPrimaryWeekTest(wNum);
@@ -1735,7 +1567,7 @@ export async function setWeekPublished(weekNum, publish) {
     if (!cres.ok) {
       errors.push(
         curriculumBackendOk === false
-          ? 'Syllabus table missing — run supabase/curriculum.sql in Supabase SQL Editor'
+          ? 'Syllabus table missing â€” run supabase/curriculum.sql in Supabase SQL Editor'
           : `Syllabus: ${cres.error || 'save failed'}`
       );
     }
@@ -1767,13 +1599,13 @@ export async function setWeekPublished(weekNum, publish) {
       curriculum: false,
       sessions: 0,
       quizzes: 0,
-      error: `No sessions, tests, or syllabus found for Week ${wNum}. Set a session’s week number to ${wNum}, then publish.`,
+      error: `No sessions, tests, or syllabus found for Week ${wNum}. Set a sessionâ€™s week number to ${wNum}, then publish.`,
     };
   }
 
   if (sessionIds.length === 0 && publish) {
     errors.push(
-      `No sessions assigned to Week ${wNum}. Edit a session’s “Wk” field to ${wNum}, then publish again.`
+      `No sessions assigned to Week ${wNum}. Edit a sessionâ€™s â€œWkâ€ field to ${wNum}, then publish again.`
     );
   }
 
@@ -1783,7 +1615,7 @@ export async function setWeekPublished(weekNum, publish) {
     curriculum: curriculumSaved && curriculumTouched,
     sessions: sessionsSaved,
     quizzes: quizzesSaved,
-    error: errors.length ? errors.join(' · ') : null,
+    error: errors.length ? errors.join(' Â· ') : null,
   };
 }
 
@@ -1850,7 +1682,7 @@ export function getWeekReleaseStatus(weekNum) {
  */
 export async function gradeSubmission(studentId, quizId, payload, feedbackOrToday, todayISO) {
   // Support both legacy gradeSubmission(id, q, score, feedback, date)
-  // and modern gradeSubmission(id, q, { score, feedback, … }, date).
+  // and modern gradeSubmission(id, q, { score, feedback, â€¦ }, date).
   let score;
   let feedback = '';
   let gradeDerivation = '';
@@ -1892,7 +1724,7 @@ export async function gradeSubmission(studentId, quizId, payload, feedbackOrToda
   if (scoringMethod === 'auto' && quiz?.type === 'auto' && !gradeDerivation) {
     const sub0 = state.progress[studentId]?.submissions?.[quizId];
     if (sub0?.correct != null && sub0?.total) {
-      gradeDerivation = `Auto-scored: ${sub0.correct} of ${sub0.total} questions correct → ${score}%. Formula: (correct ÷ total) × 100, rounded.`;
+      gradeDerivation = `Auto-scored: ${sub0.correct} of ${sub0.total} questions correct â†’ ${score}%. Formula: (correct Ã· total) Ã— 100, rounded.`;
     } else {
       gradeDerivation = `Auto-scored multiple-choice: final score ${score}%.`;
     }
@@ -1974,7 +1806,7 @@ export function countDiscussionPostsForStudent(studentId, weekNum) {
 }
 
 /**
- * One-line discussion grade for a student + week (0–100).
+ * One-line discussion grade for a student + week (0â€“100).
  * Stored as a graded submission on quiz id `qdisc-w{N}` (hidden from My Tests).
  */
 export async function gradeDiscussion(studentId, weekNum, score, feedback = '', gradedBy = '') {
@@ -1982,7 +1814,7 @@ export async function gradeDiscussion(studentId, weekNum, score, feedback = '', 
   const n = Math.round(Number(score));
   if (!studentId) return { ok: false, error: 'Missing student' };
   if (!Number.isFinite(n) || n < 0 || n > 100) {
-    return { ok: false, error: 'Score must be 0–100' };
+    return { ok: false, error: 'Score must be 0â€“100' };
   }
   ensureDiscussionGradeQuiz(w);
   const quizId = discussionQuizId(w);
@@ -2009,7 +1841,7 @@ export async function gradeDiscussion(studentId, weekNum, score, feedback = '', 
   const res = await gradeSubmission(studentId, quizId, {
     score: n,
     feedback: feedback || '',
-    gradeDerivation: `Discussion Week ${w} · single-line participation grade (${postCount} post${postCount === 1 ? '' : 's'}).`,
+    gradeDerivation: `Discussion Week ${w} Â· single-line participation grade (${postCount} post${postCount === 1 ? '' : 's'}).`,
     scoringMethod: 'instructor',
     gradedBy: gradedBy || '',
   }, date);
@@ -2034,7 +1866,7 @@ export function getDiscussionGrade(studentId, weekNum) {
 }
 
 /**
- * Fixed grading rubric for instructor-graded work (5 × 20 = 100).
+ * Fixed grading rubric for instructor-graded work (5 Ã— 20 = 100).
  * Stored in submissions.question_scores keyed by criterion id.
  */
 export const GRADING_BREAKDOWN = [
@@ -2055,7 +1887,7 @@ export function isRubricScores(scores) {
 export function formatGradingBreakdown(scores, totalScore, maxScore = 100) {
   const lines = ['Grading Breakdown', '', 'Criteria    Points'];
   for (const c of GRADING_BREAKDOWN) {
-    const pts = scores && scores[c.id] != null && scores[c.id] !== '' ? scores[c.id] : '—';
+    const pts = scores && scores[c.id] != null && scores[c.id] !== '' ? scores[c.id] : 'â€”';
     lines.push(`${c.label}    ${pts}/${c.max}`);
   }
   if (totalScore != null) {
@@ -2071,10 +1903,10 @@ export function updateLeadStatus(leadId, status) {
   if (lead) lead.status = status;
   set(next);
   push(() => supabase.from('leads').update({ status }).eq('id', leadId));
-  // A CRM record marked "enrolled" may create a student login → add their email
+  // A CRM record marked "enrolled" may create a student login â†’ add their email
   // to the approved-student allowlist that gates portal signup.
   if (status === 'enrolled' && lead?.email) {
-    addAllowedStudent(lead.email, `${lead.name || 'CRM'} · enrolled`);
+    addAllowedStudent(lead.email, `${lead.name || 'CRM'} Â· enrolled`);
   }
 }
 
@@ -2105,9 +1937,9 @@ export function addLead(lead) {
   next.leads.push(local);
   set(next);
 
-  // A record added as "enrolled" may create a student login → allowlist it.
+  // A record added as "enrolled" may create a student login â†’ allowlist it.
   if (local.status === 'enrolled' && local.email) {
-    addAllowedStudent(local.email, `${local.name || 'CRM'} · enrolled`);
+    addAllowedStudent(local.email, `${local.name || 'CRM'} Â· enrolled`);
   }
 
   if (!USE_SUPABASE || !supabase) return;
@@ -2164,7 +1996,7 @@ export function updateLead(id, fields) {
   );
   // Editing a record to "enrolled" (with an email) lets them create a login.
   if (lead.status === 'enrolled' && lead.email) {
-    addAllowedStudent(lead.email, `${lead.name || 'CRM'} · enrolled`);
+    addAllowedStudent(lead.email, `${lead.name || 'CRM'} Â· enrolled`);
   }
 }
 
@@ -2175,7 +2007,7 @@ export function deleteLead(id) {
   push(() => supabase.from('leads').delete().eq('id', id));
 }
 
-/** Clear the entire CRM — removes every lead the admin can see. */
+/** Clear the entire CRM â€” removes every lead the admin can see. */
 export function clearLeads() {
   const next = structuredClone(state);
   next.leads = [];
@@ -2233,7 +2065,7 @@ export function removeAllowedStudent(email) {
 }
 
 /* ===========================================================================
-   REALTIME — live CRM + grading queue (admin only, Supabase mode)
+   REALTIME â€” live CRM + grading queue (admin only, Supabase mode)
    ======================================================================== */
 let realtimeChannel = null;
 
@@ -2271,7 +2103,7 @@ export function stopRealtime() {
 }
 
 /* ===========================================================================
-   VIDEO UPLOAD — admin uploads a recording into Supabase Storage
+   VIDEO UPLOAD â€” admin uploads a recording into Supabase Storage
    ======================================================================== */
 export async function uploadSessionVideo(sessionId, file) {
   if (!USE_SUPABASE) return { ok: false, error: 'Connect Supabase to upload videos.' };
@@ -2301,14 +2133,14 @@ export async function uploadSessionVideo(sessionId, file) {
 }
 
 /* ===========================================================================
-   LIVE CLASS — per-session Google Meet link + scheduled time
+   LIVE CLASS â€” per-session Google Meet link + scheduled time
    ======================================================================== */
 export function setSessionMeet(sessionId, { meetUrl, liveAt }) {
   updateSession(sessionId, { meetUrl, liveAt });
 }
 
 /* ===========================================================================
-   CURRICULUM — admin-editable course syllabus
+   CURRICULUM â€” admin-editable course syllabus
    ======================================================================== */
 export function updateCurriculumMeta(updates) {
   const next = structuredClone(state);
@@ -2481,7 +2313,7 @@ export function deleteSession(sessionId) {
 }
 
 /* ===========================================================================
-   CLASS MATERIALS — per-session content library (the resell-ready assets)
+   CLASS MATERIALS â€” per-session content library (the resell-ready assets)
    ======================================================================== */
 export const getMaterialsForSession = (sid) =>
   (state.materials || []).filter((m) => m.sessionId === sid);
@@ -2559,7 +2391,7 @@ export function deleteMaterial(id) {
 }
 
 /* ===========================================================================
-   CLASS DISCUSSION — a shared student-to-student board (realtime in Supabase)
+   CLASS DISCUSSION â€” a shared student-to-student board (realtime in Supabase)
    ======================================================================== */
 /** Post a message (or reply) to the class board. Optimistic: shows immediately,
  *  then reconciles the temp id + timestamp with the row the database returns.
@@ -2691,7 +2523,7 @@ export function deleteDiscussionPost(id) {
   push(() => supabase.from('discussion_posts').delete().eq('id', id));
 }
 
-/* Realtime for the discussion board — runs for EVERY signed-in user (unlike the
+/* Realtime for the discussion board â€” runs for EVERY signed-in user (unlike the
    admin-only CRM channel) so new posts appear live for the whole class. */
 let discussionChannel = null;
 

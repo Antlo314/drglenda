@@ -9,12 +9,32 @@
    ========================================================================== */
 
 import { CURRICULUM } from './curriculum.js';
+import { parseQuestionBank } from './questionBank.js';
 
-// Weekly tests show students the EXACT free-response questions from the
-// curriculum (curriculum.js is the single source of truth). They are
-// instructor-graded and appear under student My Tests when published.
+// Weekly tests: curriculum quiz lines (free-response or multi-line MC blocks).
 const week1 = CURRICULUM.weeks.find((w) => w.week === 1);
 const week2 = CURRICULUM.weeks.find((w) => w.week === 2);
+
+function questionsFromCurriculumQuiz(quizId, quizLines) {
+  const text = (quizLines || []).join('\n\n');
+  const parsed = parseQuestionBank(text);
+  if (!parsed.length) {
+    return (quizLines || []).map((prompt, i) => ({ id: `${quizId}-${i + 1}`, prompt }));
+  }
+  return parsed.map((pq, i) => ({
+    id: `${quizId}-${i + 1}`,
+    prompt: pq.prompt,
+    ...(pq.options?.length ? { options: pq.options } : {}),
+    ...(pq.correctIndex != null ? { correctIndex: pq.correctIndex } : {}),
+  }));
+}
+
+const week1Questions = questionsFromCurriculumQuiz('qw1', week1?.quiz);
+const week2Questions = questionsFromCurriculumQuiz('qw2', week2?.quiz);
+const week2AllMc =
+  week2Questions.length > 0 &&
+  week2Questions.every((qq) => Array.isArray(qq.options) && qq.options.length >= 2);
+
 const WEEK1_TEST = {
   id: 'qw1',
   sessionId: 's1',
@@ -23,19 +43,19 @@ const WEEK1_TEST = {
   due: '2026-07-13', // Monday
   title: 'Week 1 Test — Entrepreneurial Mindset & Business Foundation',
   maxScore: 100,
-  questions: (week1?.quiz || []).map((prompt, i) => ({ id: `qw1-${i + 1}`, prompt })),
+  questions: week1Questions,
 };
 
 const WEEK2_TEST = {
   id: 'qw2',
   // No week-2 session recording yet — title matching still associates this with Week 2
   sessionId: null,
-  type: 'manual',
+  type: week2AllMc ? 'auto' : 'manual',
   published: true,
   due: '2026-07-20',
   title: 'Week 2 Test — Business Structure & Legal Foundation',
   maxScore: 100,
-  questions: (week2?.quiz || []).map((prompt, i) => ({ id: `qw2-${i + 1}`, prompt })),
+  questions: week2Questions,
 };
 
 // Week 1 "Why" reflection — a separate portfolio deliverable, due before the quiz.
