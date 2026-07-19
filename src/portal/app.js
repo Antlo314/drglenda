@@ -1667,14 +1667,25 @@ function sessionDetail(user) {
   </section>`;
 }
 
-/** A written test = a manual quiz made of free-response questions (no MC options). */
-const isWritten = (q) => {
+/** Manual multi-question test (free-response and/or multiple choice). */
+const isStructuredManual = (q) => {
   if (!q || q.type !== 'manual') return false;
   const qs = Array.isArray(q.questions) ? q.questions : [];
-  if (!qs.length) return false;
-  // Treat as written when no question has multiple-choice options
-  return qs.every((qq) => !Array.isArray(qq.options) || qq.options.length === 0);
+  return qs.length > 0;
 };
+
+/** Pure free-response (no A/B/C/D options on any item). */
+const isWritten = (q) => {
+  if (!isStructuredManual(q)) return false;
+  return (q.questions || []).every((qq) => !Array.isArray(qq.options) || qq.options.length < 2);
+};
+
+const hasMcOptions = (qq) => Array.isArray(qq?.options) && qq.options.length >= 2;
+
+/** Format student answer for review (letters for MC). */
+function displayAnswer(qq, raw) {
+  return esc(store.formatQuestionAnswer(qq, raw));
+}
 
 function quizView(user) {
   const q = store.getQuizById(route.params.id);
@@ -1684,11 +1695,22 @@ function quizView(user) {
     return `<div class="page-head"><h1>${esc(q.title)}</h1></div>
     <section class="panel"><p class="muted">This test isn’t open yet. Your instructor will make it available when the class is ready.</p></section>`;
   }
+  const structured = isStructuredManual(q);
   const written = isWritten(q);
   // Only this student's own *valid* submission (stale/empty rows → blank form)
   const sub = store.getStudentSubmission(user.id, q.id);
   const sx = store.getSessionById(q.sessionId);
-  const kind = q.type === 'auto' ? 'Quiz' : written ? 'Test' : 'Assignment';
+  const mcCount = (q.questions || []).filter(hasMcOptions).length;
+  const kind =
+    q.type === 'auto'
+      ? 'Quiz'
+      : structured
+        ? mcCount
+          ? mcCount === (q.questions || []).length
+            ? 'Multiple choice'
+            : 'Mixed test'
+          : 'Test'
+        : 'Assignment';
   const back =
     user.role === 'admin'
       ? `<button class="back-link" data-action="go" data-route="admin-tests">← Tests</button>`
@@ -1700,8 +1722,8 @@ function quizView(user) {
     ${back}
     <div class="page-head"><div><span class="eyebrow">${kind}${q.due ? ` · Due ${fmtDate(q.due)}` : ''}</span><h1>${esc(q.title)}</h1></div></div>`;
 
-  /* ---- written test (free-response, instructor-graded) ---- */
-  if (written) {
+  /* ---- multi-question manual test (free-response + optional A/B/C/D) ---- */
+  if (structured) {
     const questions = q.questions || [];
     if (!questions.length) {
       return `${head}
@@ -1711,12 +1733,33 @@ function quizView(user) {
       <section class="panel"><div class="panel-head"><h2>${esc(title)}</h2>
         <span class="muted">${questions.length} question${questions.length === 1 ? '' : 's'}</span></div>
         ${questions
-          .map(
-            (qq, i) => `<div class="review-q">
+          .map((qq, i) => {
+            const raw = answers && answers[qq.id];
+            if (hasMcOptions(qq)) {
+              const chosen =
+                typeof raw === 'number'
+                  ? raw
+                  : Number.isFinite(Number(raw))
+                    ? Number(raw)
+                    : store.letterToIndex(raw, qq.options.length);
+              return `<div class="review-q">
               <p class="rq-prompt">${i + 1}. ${esc(qq.prompt)}</p>
-              <p class="answer-box">${esc((answers && answers[qq.id]) || '—')}</p>
-            </div>`
-          )
+              ${qq.options
+                .map((opt, oi) => {
+                  const letter = store.indexToLetter(oi);
+                  const isChosen = oi === chosen;
+                  return `<div class="opt ${isChosen ? 'opt-correct' : ''}">${letter}. ${esc(opt)}${
+                    isChosen ? ' ← your answer' : ''
+                  }</div>`;
+                })
+                .join('')}
+            </div>`;
+            }
+            return `<div class="review-q">
+              <p class="rq-prompt">${i + 1}. ${esc(qq.prompt)}</p>
+              <p class="answer-box">${displayAnswer(qq, raw)}</p>
+            </div>`;
+          })
           .join('')}
       </section>`;
 
@@ -1741,13 +1784,35 @@ function quizView(user) {
       ${qaBlock(sub.answers, 'Your submitted answers')}`;
     }
 
-    // Not started: blank form for first submission
+    // Not started: form with radios for MC, textareas for free-response
+    const formHint = mcCount
+      ? written
+        ? 'Answer each question below, then submit for grading.'
+        : 'Select A, B, C, or D for multiple-choice items. Write short answers where asked. Submit when finished.'
+      : 'Answer each question below, then submit for grading. Your answers will appear here after you submit.';
     return `${head}
     <form id="writtenForm" data-quiz="${esc(q.id)}" class="panel quiz-form" autocomplete="off">
-      <p class="muted">Answer each question below, then submit for grading. Your answers will appear here after you submit.</p>
+      <p class="muted">${formHint}</p>
       ${questions
         .map((qq, i) => {
           const fieldId = esc(qq.id);
+          if (hasMcOptions(qq)) {
+            return `<fieldset class="quiz-q quiz-q-mc">
+        <legend class="quiz-q-prompt">${i + 1}. ${esc(qq.prompt)}</legend>
+        <div class="mc-options" role="radiogroup" aria-label="Question ${i + 1}">
+          ${qq.options
+            .map((opt, oi) => {
+              const letter = store.indexToLetter(oi);
+              const rid = `${fieldId}-${oi}`;
+              return `<label class="opt-choice mc-choice" for="${rid}">
+              <input type="radio" id="${rid}" name="${fieldId}" value="${oi}" required />
+              <span><strong class="mc-letter">${letter}.</strong> ${esc(opt)}</span>
+            </label>`;
+            })
+            .join('')}
+        </div>
+      </fieldset>`;
+          }
           return `<fieldset class="quiz-q">
         <legend class="quiz-q-prompt">${i + 1}. ${esc(qq.prompt)}</legend>
         <label class="quiz-answer-label" for="ans-${fieldId}">Your answer</label>
@@ -2429,18 +2494,43 @@ function gradeView() {
   const rubricScores = store.isRubricScores(savedQs) ? savedQs : {};
 
   let submissionPanel = '';
-  if (written) {
-    const qList =
-      quiz.questions?.length
-        ? quiz.questions
-        : Object.keys(sub.answers || {}).map((id) => ({ id, prompt: id }));
+  const structuredQs =
+    Array.isArray(quiz.questions) && quiz.questions.length
+      ? quiz.questions
+      : Object.keys(sub.answers || {}).map((id) => ({ id, prompt: id }));
+  if (written || (quiz.type === 'manual' && structuredQs.length)) {
+    const qList = structuredQs;
     submissionPanel = `<section class="panel"><div class="panel-head"><h2>Student answers</h2>
         <span class="muted">${qList.length} question${qList.length === 1 ? '' : 's'} · score with Grading Breakdown below</span></div>
         ${qList
-          .map((qq, i) => `<div class="review-q">
+          .map((qq, i) => {
+            const raw = sub.answers && sub.answers[qq.id];
+            if (Array.isArray(qq.options) && qq.options.length >= 2) {
+              const chosen =
+                typeof raw === 'number'
+                  ? raw
+                  : Number.isFinite(Number(raw))
+                    ? Number(raw)
+                    : store.letterToIndex(raw, qq.options.length);
+              return `<div class="review-q">
             <p class="rq-prompt">${i + 1}. ${esc(qq.prompt)}</p>
-            <p class="answer-box">${esc((sub.answers && sub.answers[qq.id]) || '—')}</p>
-          </div>`)
+            ${qq.options
+              .map((opt, oi) => {
+                const letter = store.indexToLetter(oi);
+                const isChosen = oi === chosen;
+                const isKey = qq.correctIndex != null && oi === Number(qq.correctIndex);
+                const cls = isKey ? 'opt-correct' : isChosen ? 'opt-wrong' : '';
+                const tag = isChosen ? ' ← their answer' : isKey ? ' ✓ key' : '';
+                return `<div class="opt ${cls}">${letter}. ${esc(opt)}${tag}</div>`;
+              })
+              .join('')}
+          </div>`;
+            }
+            return `<div class="review-q">
+            <p class="rq-prompt">${i + 1}. ${esc(qq.prompt)}</p>
+            <p class="answer-box">${esc(store.formatQuestionAnswer(qq, raw))}</p>
+          </div>`;
+          })
           .join('')}
       </section>`;
   } else if (quiz.type === 'auto' && quiz.questions?.length) {
@@ -2898,7 +2988,9 @@ function adminWeeklyTestsPanel() {
 
   const editing = editingQuizId ? store.getQuizById(editingQuizId) : null;
   const editWeek = editing ? quizWeekNum(editing) || 1 : 2;
-  const editQuestions = editing?.questions?.map((qq) => qq.prompt).join('\n') || '';
+  const editQuestions = editing?.questions
+    ? store.serializeQuestions(editing.questions)
+    : '';
   const defaultWeek = editing ? editWeek : 2;
 
   const rows = quizzes.length
@@ -2907,11 +2999,16 @@ function adminWeeklyTestsPanel() {
           const wk = quizWeekNum(q);
           const weekLabel = wk ? `W${wk}` : '—';
           const qCount = Array.isArray(q.questions) ? q.questions.length : 0;
+          const mcN = (q.questions || []).filter(
+            (qq) => Array.isArray(qq.options) && qq.options.length >= 2
+          ).length;
           const isEdit = editingQuizId === q.id;
           return `<div class="quiz-live-row week-test-row${isEdit ? ' week-test-editing' : ''}">
             <span class="qlr-title">
               <strong>${esc(q.title)}</strong>
-              <span class="muted"> · ${weekLabel}${q.due ? ` · due ${fmtDate(q.due)}` : ''} · ${qCount} question${qCount === 1 ? '' : 's'}</span>
+              <span class="muted"> · ${weekLabel}${q.due ? ` · due ${fmtDate(q.due)}` : ''} · ${qCount} question${qCount === 1 ? '' : 's'}${
+                mcN ? ` · ${mcN} multiple choice` : ''
+              }</span>
             </span>
             ${q.published ? `<span class="pill pill-done">● Live</span>` : `<span class="pill pill-todo">Offline</span>`}
             <button type="button" class="btn btn-sm btn-outline"
@@ -2937,9 +3034,12 @@ function adminWeeklyTestsPanel() {
       <span class="muted" style="font-size:0.84rem">Students answer under My Tests · you grade under Grading</span>
     </div>
     <p class="hint" style="margin-top:0">
-      Write free-response questions (one per line). Students only see tests marked
-      <strong>● Live</strong> under <strong>My Tests</strong> — students submit answers, then can reopen to <strong>view what they submitted</strong>
-      until they submit. Use <strong>Reset answers</strong> to wipe old submissions so students can start over.
+      <strong>Free-response:</strong> one question per line.<br />
+      <strong>Multiple choice:</strong> write the question, then options on the next lines as
+      <code>A. …</code> <code>B. …</code> <code>C. …</code> <code>D. …</code>
+      (also accepts <code>a)</code> / <code>1.</code>). Optional answer key:
+      <code>Correct: B</code>. Blank line between questions.<br />
+      Students only see tests marked <strong>● Live</strong>. Use <strong>Reset answers</strong> to wipe live submissions.
     </p>
 
     <form id="createTestForm" class="create-test-form" data-edit-id="${editing ? esc(editing.id) : ''}">
@@ -2962,9 +3062,9 @@ function adminWeeklyTestsPanel() {
         <label class="field"><span>Due date <em class="muted">(optional)</em></span>
           <input type="date" name="due" value="${esc(editing?.due || '')}" />
         </label>
-        <label class="field create-test-full"><span>Questions <em class="muted">(one per line)</em></span>
-          <textarea name="questions" rows="8" required
-            placeholder="What is the main liability difference between a sole proprietorship and an LLC?&#10;Why do funders care whether personal and business finances are separated?">${esc(
+        <label class="field create-test-full"><span>Questions <em class="muted">(free-response and/or A–D multiple choice)</em></span>
+          <textarea name="questions" rows="12" required
+            placeholder="What is a growth mindset?&#10;A. Believing skills improve with practice&#10;B. Talent never changes&#10;C. Avoiding feedback&#10;D. Ignoring goals&#10;Correct: A&#10;&#10;Why is goal setting important in business?">${esc(
               editQuestions
             )}</textarea>
         </label>
@@ -4722,23 +4822,91 @@ app.addEventListener('submit', async (e) => {
     const fd = new FormData(form);
     questions.forEach((qq) => {
       const raw = fd.get(qq.id);
-      answers[qq.id] = String(raw != null ? raw : '').trim();
+      const isMc = Array.isArray(qq.options) && qq.options.length >= 2;
+      if (isMc) {
+        // Store chosen index (0=A, 1=B, …) for grading / review
+        if (raw == null || raw === '') answers[qq.id] = '';
+        else {
+          const n = Number(raw);
+          answers[qq.id] = Number.isFinite(n) ? n : String(raw).trim();
+        }
+      } else {
+        answers[qq.id] = String(raw != null ? raw : '').trim();
+      }
     });
-    // Fallback: scan textareas if FormData missed anything
-    form.querySelectorAll('textarea.quiz-answer, textarea[name]').forEach((ta) => {
-      const name = ta.getAttribute('name');
-      if (name && answers[name] === undefined) answers[name] = (ta.value || '').trim();
+    // Fallback: scan fields if FormData missed anything
+    form.querySelectorAll('textarea.quiz-answer, textarea[name], input[type="radio"]:checked').forEach((el) => {
+      const name = el.getAttribute('name');
+      if (!name || answers[name] !== undefined && answers[name] !== '') return;
+      if (el.type === 'radio') answers[name] = Number(el.value);
+      else answers[name] = (el.value || '').trim();
     });
-    const missing = questions.filter((qq) => !answers[qq.id]);
+    const missing = questions.filter((qq) => {
+      const v = answers[qq.id];
+      if (v == null || v === '') return true;
+      if (typeof v === 'string' && !String(v).trim()) return true;
+      return false;
+    });
     if (missing.length) {
       toast(`Please answer all questions (${missing.length} still blank)`);
       return;
     }
+    // Fully keyed multiple-choice → auto-score path
+    const allMcKeyed =
+      questions.length > 0 &&
+      questions.every(
+        (qq) =>
+          Array.isArray(qq.options) &&
+          qq.options.length >= 2 &&
+          qq.correctIndex != null &&
+          Number.isFinite(Number(qq.correctIndex))
+      );
     const unbusy = setBusy(form, 'Submitting…');
-    const res = await store.submitWritten(user.id, quiz.id, answers, nowISO());
+    let res;
+    if (allMcKeyed || quiz.type === 'auto') {
+      // Coerce all to numbers for auto scorer
+      const autoAns = {};
+      questions.forEach((qq) => {
+        autoAns[qq.id] = Number(answers[qq.id]);
+      });
+      // submitAutoQuiz requires type auto — temporarily ok if we set type on create
+      if (quiz.type !== 'auto') {
+        // Score locally then submit as graded manual with score
+        let correct = 0;
+        questions.forEach((qq) => {
+          if (Number(autoAns[qq.id]) === Number(qq.correctIndex)) correct += 1;
+        });
+        const total = questions.length;
+        const score = Math.round((correct / total) * 100);
+        res = await store.submitWritten(user.id, quiz.id, autoAns, nowISO());
+        if (res.ok) {
+          await store.gradeSubmission(
+            user.id,
+            quiz.id,
+            {
+              score,
+              feedback: `Auto-scored multiple choice: ${correct} of ${total} correct.`,
+              scoringMethod: 'auto',
+              gradeDerivation: `Auto-scored: ${correct} of ${total} questions correct → ${score}%.`,
+              gradedBy: 'System',
+            },
+            nowISO()
+          );
+          res = { ok: true, score, correct, total };
+        }
+      } else {
+        res = await store.submitAutoQuiz(user.id, quiz.id, autoAns, nowISO());
+      }
+    } else {
+      res = await store.submitWritten(user.id, quiz.id, answers, nowISO());
+    }
     if (res.ok) {
       clearQuizDraft(user.id, quiz.id);
-      toast('Submitted · your instructor can grade it under Grading ✓');
+      toast(
+        res.score != null
+          ? `Submitted · score ${res.score}% ✓`
+          : 'Submitted · your instructor can grade it under Grading ✓'
+      );
       hideConnBanner();
       render();
     } else {

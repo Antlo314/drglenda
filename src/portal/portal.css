@@ -864,6 +864,48 @@ body.side-nav-open { overflow: hidden; }
   color: var(--ok);
   border-color: rgba(42, 122, 75, 0.12);
 }
+/* Multiple-choice choices on My Tests */
+.quiz-q-mc .mc-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.5rem;
+}
+.mc-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--cream);
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.mc-choice:hover {
+  border-color: var(--maroon);
+  background: var(--white);
+}
+.mc-choice:has(input:checked) {
+  border-color: var(--maroon);
+  background: var(--gold-muted);
+  box-shadow: var(--ring);
+}
+.mc-choice input {
+  margin-top: 0.2rem;
+  accent-color: var(--maroon);
+}
+.mc-letter {
+  color: var(--maroon);
+  margin-right: 0.2rem;
+}
+.create-test-full code {
+  font-size: 0.82em;
+  background: var(--cream-2);
+  padding: 0.05em 0.3em;
+  border-radius: 4px;
+}
+
 /* Admin grading — discussion single-line scores */
 .disc-grade-lead {
   margin: 0 0 0.75rem;

@@ -285,6 +285,11 @@ export function normalizeQuestions(quizId, raw) {
   return raw
     .map((q, i) => {
       if (typeof q === 'string') {
+        // May be a multi-line block with A/B/C/D options
+        const parsed = parseQuestionBank(q);
+        if (parsed.length === 1) {
+          return { id: `${quizId || 'q'}-${i + 1}`, ...parsed[0] };
+        }
         const prompt = q.trim();
         if (!prompt) return null;
         return { id: `${quizId || 'q'}-${i + 1}`, prompt };
@@ -294,13 +299,205 @@ export function normalizeQuestions(quizId, raw) {
       if (!prompt) return null;
       const id = String(q.id || `${quizId || 'q'}-${i + 1}`);
       const out = { id, prompt };
-      if (Array.isArray(q.options)) {
-        out.options = q.options;
-        if (q.correctIndex != null) out.correctIndex = q.correctIndex;
+      let options = Array.isArray(q.options) ? q.options.map((o) => String(o).trim()).filter(Boolean) : null;
+      // Choices sometimes arrive as "a,b,c,d" or "A) … B) …" in a single field
+      if ((!options || !options.length) && (q.choices || q.answers || q.optionsText)) {
+        options = parseOptionsBlob(q.choices || q.answers || q.optionsText);
+      }
+      if (options?.length) {
+        out.options = options;
+        if (q.correctIndex != null && q.correctIndex !== '') {
+          out.correctIndex = Number(q.correctIndex);
+        } else if (q.correct != null || q.answer != null || q.key != null) {
+          const ci = letterToIndex(q.correct ?? q.answer ?? q.key, options.length);
+          if (ci != null) out.correctIndex = ci;
+        }
       }
       return out;
     })
     .filter(Boolean);
+}
+
+/** A→0, B→1, … or 1→0 based numbering */
+export function letterToIndex(letter, optionCount = 26) {
+  if (letter == null || letter === '') return null;
+  const s = String(letter).trim();
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    // 1-based if looks like 1..n, else 0-based
+    if (n >= 1 && n <= optionCount) return n - 1;
+    if (n >= 0 && n < optionCount) return n;
+    return null;
+  }
+  const ch = s.replace(/[^A-Za-z]/g, '').charAt(0);
+  if (!ch) return null;
+  const idx = ch.toUpperCase().charCodeAt(0) - 65;
+  if (idx < 0 || idx >= optionCount) return null;
+  return idx;
+}
+
+export function indexToLetter(i) {
+  if (i == null || !Number.isFinite(Number(i)) || Number(i) < 0) return '';
+  return String.fromCharCode(65 + Number(i));
+}
+
+/** Parse "a) foo, b) bar" or "a,b,c,d" or lines of A. / A) options. */
+export function parseOptionsBlob(raw) {
+  const text = String(raw ?? '').trim();
+  if (!text) return [];
+  // Multi-line options
+  if (/\n/.test(text)) {
+    const opts = [];
+    for (const line of text.split(/\r?\n/)) {
+      const m = line.trim().match(/^\s*(?:\(?([A-Da-d])\)|[A-Da-d]|[1-9])[\)\.\:\-\s]\s*(.+)$/);
+      if (m) opts.push((m[2] || m[1] || '').trim());
+      else if (line.trim()) opts.push(line.trim());
+    }
+    return opts.filter(Boolean);
+  }
+  // Single line: A) x  B) y  or a) x, b) y
+  const labeled = [...text.matchAll(/(?:^|[\s,;])(?:\(?([A-Da-d])\)|([A-Da-d]))[\)\.\:\-]\s*([^,;]+)/gi)];
+  if (labeled.length >= 2) {
+    return labeled.map((m) => String(m[3] || '').trim()).filter(Boolean);
+  }
+  // Bare "a, b, c, d" → treat each segment as option text (or letter-only labels)
+  if (text.includes(',')) {
+    return text
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => s.replace(/^[A-Da-d][\)\.\:\-\s]+/i, '').trim() || s);
+  }
+  return [];
+}
+
+/**
+ * Parse admin question bank text into structured questions.
+ *
+ * Free-response:
+ *   What is a growth mindset?
+ *
+ * Multiple choice (options follow the question):
+ *   What is a growth mindset?
+ *   A. Believing skills improve with practice
+ *   B. Talent is fixed
+ *   C. Avoid hard work
+ *   D. Ignore feedback
+ *   Correct: A
+ *
+ * Also accepts a) / A) / 1. labels and blank-line separators.
+ */
+export function parseQuestionBank(text) {
+  const lines = String(text ?? '').split(/\r?\n/);
+  const questions = [];
+  let cur = null;
+
+  const optionLine = (t) => {
+    // A. text | A) text | (A) text | a - text | 1. text
+    let m = t.match(/^\s*([A-Da-d])\s*[\)\.\:\-]\s+(.+)$/);
+    if (m) return { letter: m[1].toUpperCase(), text: m[2].trim() };
+    m = t.match(/^\s*\(([A-Da-d])\)\s+(.+)$/);
+    if (m) return { letter: m[1].toUpperCase(), text: m[2].trim() };
+    m = t.match(/^\s*([1-9])\s*[\)\.\:\-]\s+(.+)$/);
+    if (m) return { letter: indexToLetter(Number(m[1]) - 1) || m[1], text: m[2].trim() };
+    return null;
+  };
+  const correctLine = (t) => {
+    let m = t.match(/^\s*(?:correct|answer|key)\s*[:=]\s*\**\s*([A-Da-d1-9])\s*\**\s*$/i);
+    if (m) return m[1];
+    m = t.match(/^\s*\*\s*([A-Da-d1-9])\s*$/);
+    if (m) return m[1];
+    return null;
+  };
+
+  const flush = () => {
+    if (!cur?.prompt) {
+      cur = null;
+      return;
+    }
+    const q = { prompt: cur.prompt };
+    if (cur.options?.length >= 2) {
+      q.options = cur.options;
+      if (cur.correctLetter != null) {
+        const ci = letterToIndex(cur.correctLetter, cur.options.length);
+        if (ci != null) q.correctIndex = ci;
+      }
+    }
+    questions.push(q);
+    cur = null;
+  };
+
+  for (const raw of lines) {
+    const t = raw.trim();
+    if (!t) {
+      // Blank line ends a multiple-choice block (keeps free-response as single lines too)
+      if (cur?.options?.length) flush();
+      continue;
+    }
+    const key = correctLine(t);
+    if (key != null && cur) {
+      cur.correctLetter = key;
+      continue;
+    }
+    const opt = optionLine(t);
+    if (opt && cur) {
+      cur.options = cur.options || [];
+      // Fill gaps if letters skip (rare)
+      cur.options.push(opt.text);
+      continue;
+    }
+    // One-line MC: "Question? a) x b) y c) z d) w"
+    const inline = t.match(/^(.*?\?)\s+((?:\(?[A-Da-d]\)?[\)\.\:\-]\s*.+))$/i);
+    if (inline) {
+      flush();
+      const prompt = inline[1].trim();
+      const opts = parseOptionsBlob(inline[2]);
+      if (opts.length >= 2) {
+        questions.push({ prompt, options: opts });
+        cur = null;
+        continue;
+      }
+    }
+    // New question prompt
+    flush();
+    cur = { prompt: t, options: [] };
+  }
+  flush();
+  return questions;
+}
+
+/** Serialize questions back to admin textarea format. */
+export function serializeQuestions(questions) {
+  if (!Array.isArray(questions)) return '';
+  return questions
+    .map((q) => {
+      const prompt = typeof q === 'string' ? q : q?.prompt || '';
+      if (!prompt) return '';
+      const opts = typeof q === 'object' && Array.isArray(q.options) ? q.options : null;
+      if (!opts?.length) return prompt;
+      const lines = [prompt];
+      opts.forEach((o, i) => lines.push(`${indexToLetter(i)}. ${o}`));
+      if (q.correctIndex != null && q.correctIndex !== '') {
+        lines.push(`Correct: ${indexToLetter(Number(q.correctIndex))}`);
+      }
+      return lines.join('\n');
+    })
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+/** Human-readable answer for grading / My Tests review. */
+export function formatQuestionAnswer(qq, raw) {
+  if (raw == null || raw === '') return '—';
+  const opts = Array.isArray(qq?.options) ? qq.options : [];
+  if (opts.length) {
+    let idx = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isFinite(idx)) idx = letterToIndex(raw, opts.length);
+    if (idx != null && opts[idx] != null) {
+      return `${indexToLetter(idx)}. ${opts[idx]}`;
+    }
+  }
+  return String(raw);
 }
 
 const mapQuiz = (r) => {
@@ -1206,9 +1403,19 @@ export async function setQuizPublished(quizId, published) {
  */
 export async function createWeeklyTest(opts = {}) {
   const weekNum = Math.max(1, Number(opts.week) || 1);
-  const lines = toLines(opts.questions);
-  if (!lines.length) {
-    return { ok: false, error: 'Add at least one quiz question (one per line).' };
+  // Accept free-response lines and/or A/B/C/D multiple-choice blocks
+  const parsed =
+    typeof opts.questions === 'string' || Array.isArray(opts.questions)
+      ? parseQuestionBank(
+          Array.isArray(opts.questions) ? opts.questions.join('\n') : opts.questions
+        )
+      : [];
+  if (!parsed.length) {
+    return {
+      ok: false,
+      error:
+        'Add at least one question. For multiple choice, put A/B/C/D options on the lines under the question.',
+    };
   }
 
   // Link to a session in that week when possible (for student session detail + week hub).
@@ -1226,17 +1433,24 @@ export async function createWeeklyTest(opts = {}) {
   const title =
     String(opts.title || '').trim() ||
     `Week ${weekNum} Test`;
-  const questions = lines.map((prompt, i) => ({
+  const questions = parsed.map((pq, i) => ({
     id: `${id}-${i + 1}`,
-    prompt,
+    prompt: pq.prompt,
+    ...(pq.options?.length ? { options: pq.options } : {}),
+    ...(pq.correctIndex != null ? { correctIndex: pq.correctIndex } : {}),
   }));
+  const allMcScored =
+    questions.length > 0 &&
+    questions.every(
+      (qq) => Array.isArray(qq.options) && qq.options.length >= 2 && qq.correctIndex != null
+    );
   const published = !!opts.published;
   const due = opts.due ? String(opts.due).slice(0, 10) : null;
 
   const quiz = {
     id,
     sessionId,
-    type: 'manual',
+    type: allMcScored ? 'auto' : 'manual',
     title,
     maxScore: 100,
     prompt: null,
@@ -1253,7 +1467,7 @@ export async function createWeeklyTest(opts = {}) {
     supabase.from('quizzes').insert({
       id: quiz.id,
       session_id: quiz.sessionId,
-      type: 'manual',
+      type: quiz.type,
       title: quiz.title,
       max_score: 100,
       prompt: null,
@@ -1313,15 +1527,29 @@ export async function updateWeeklyTest(quizId, opts = {}) {
   }
 
   if (opts.questions !== undefined) {
-    const lines = toLines(opts.questions);
-    if (!lines.length) {
-      return { ok: false, error: 'Add at least one quiz question (one per line).' };
+    const parsed = parseQuestionBank(
+      Array.isArray(opts.questions) ? opts.questions.join('\n') : opts.questions
+    );
+    if (!parsed.length) {
+      return {
+        ok: false,
+        error:
+          'Add at least one question. For multiple choice, put A/B/C/D options under each question.',
+      };
     }
     const prevQs = Array.isArray(q.questions) ? q.questions : [];
-    q.questions = lines.map((prompt, i) => ({
+    q.questions = parsed.map((pq, i) => ({
       id: prevQs[i]?.id || `${q.id}-${i + 1}`,
-      prompt,
+      prompt: pq.prompt,
+      ...(pq.options?.length ? { options: pq.options } : {}),
+      ...(pq.correctIndex != null ? { correctIndex: pq.correctIndex } : {}),
     }));
+    const allMcScored =
+      q.questions.length > 0 &&
+      q.questions.every(
+        (qq) => Array.isArray(qq.options) && qq.options.length >= 2 && qq.correctIndex != null
+      );
+    q.type = allMcScored ? 'auto' : 'manual';
   }
 
   set(next);
@@ -1331,6 +1559,7 @@ export async function updateWeeklyTest(quizId, opts = {}) {
       .from('quizzes')
       .update({
         session_id: q.sessionId,
+        type: q.type || 'manual',
         title: q.title,
         questions: q.questions,
         published: !!q.published,
