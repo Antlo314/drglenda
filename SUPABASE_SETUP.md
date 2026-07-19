@@ -79,6 +79,36 @@ New installs that run the full [`schema.sql`](supabase/schema.sql) already inclu
 They store optional grade metadata (`grade_derivation`, `question_scores`, `scoring_method`,
 `graded_by`) used by the portal’s **Grading Breakdown** when scoring written work.
 
+## Answer failsafe archive (strongly recommended)
+
+Student test answers and discussion posts can be wiped by “Reset” or accidental deletes.
+Run once:
+
+[`supabase/submission-archive-failsafe.sql`](supabase/submission-archive-failsafe.sql)
+
+This creates **append-only** archive tables + triggers so every insert/update/delete of:
+
+- `submissions` (My Tests / grading answers)
+- `discussion_posts` (discussion board text)
+
+…is copied into `submission_archive` and `discussion_post_archive` **before** the live
+row is lost. Archives do **not** cascade-delete with profiles. The script also backfills
+whatever is already live.
+
+**Inspect backups (admin):**
+```sql
+select archive_id, archived_at, event, profile_id, quiz_id, status, score, answers
+from public.submission_archive
+where quiz_id = 'qw1'
+order by archived_at desc
+limit 50;
+```
+
+**Restore a submission snapshot (admin):**
+```sql
+select public.restore_submission_from_archive(12345);  -- use archive_id from query above
+```
+
 ## Student work not showing in admin (fix)
 
 If students submit but nothing appears under **Grading**, run

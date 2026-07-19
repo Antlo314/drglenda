@@ -760,7 +760,45 @@ export function getStudentSubmission(studentId, quizId) {
 }
 
 /**
+ * Admin: list archive snapshots for a student (+ optional quiz).
+ * Requires submission-archive-failsafe.sql on Supabase.
+ */
+export async function listSubmissionArchive(profileId, quizId = null, limit = 40) {
+  if (!USE_SUPABASE || !supabase) return { ok: true, rows: [] };
+  let q = supabase
+    .from('submission_archive')
+    .select(
+      'archive_id, archived_at, event, profile_id, quiz_id, status, score, answers, answer, feedback, graded_by, submitted_at, graded_at'
+    )
+    .order('archived_at', { ascending: false })
+    .limit(limit);
+  if (profileId) q = q.eq('profile_id', profileId);
+  if (quizId) q = q.eq('quiz_id', quizId);
+  const { data, error } = await q;
+  if (error) return { ok: false, error: error.message, rows: [] };
+  return { ok: true, rows: data || [] };
+}
+
+/**
+ * Admin: restore a submission from archive_id (SQL failsafe).
+ * Live row is upserted; archive history is kept.
+ */
+export async function restoreSubmissionFromArchive(archiveId) {
+  if (!USE_SUPABASE || !supabase) {
+    return { ok: false, error: 'Archive restore only works against Supabase.' };
+  }
+  const { data, error } = await supabase.rpc('restore_submission_from_archive', {
+    p_archive_id: Number(archiveId),
+  });
+  if (error) return { ok: false, error: error.message };
+  // Refresh local cache so Grading / My Tests see restored answers
+  await refreshProgress();
+  return { ok: true, data };
+}
+
+/**
  * Admin: delete a student’s submission so they get a blank form again.
+ * Live row is removed; SQL failsafe keeps a copy in submission_archive (if installed).
  * Also clears any matching local demo progress.
  */
 export async function clearSubmission(studentId, quizId) {
