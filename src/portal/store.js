@@ -401,6 +401,26 @@ const mapSubmission = (r) => ({
   gradedBy: r.graded_by || '',
   submittedAt: r.submitted_at, gradedAt: r.graded_at,
 });
+/** Ensure every week has an Action Plan array (`quiz` / `actionPlan`). */
+function ensureWeekActionPlans(weeks) {
+  if (!Array.isArray(weeks)) return [];
+  return weeks.map((w) => {
+    const week = { ...w };
+    const plan = Array.isArray(week.actionPlan)
+      ? week.actionPlan
+      : Array.isArray(week.quiz)
+        ? week.quiz
+        : [];
+    week.quiz = plan.map((s) => String(s ?? '').trim()).filter(Boolean);
+    week.actionPlan = week.quiz;
+    week.objectives = Array.isArray(week.objectives) ? week.objectives : [];
+    week.steps = Array.isArray(week.steps) ? week.steps : [];
+    week.assignment = week.assignment ?? '';
+    week.discussion = week.discussion ?? '';
+    return week;
+  });
+}
+
 const mapCurriculum = (r) => ({
   title: r.title || '',
   tagline: r.tagline || '',
@@ -408,7 +428,7 @@ const mapCurriculum = (r) => ({
   format: r.format || '',
   learningStyle: r.learning_style || '',
   description: r.description || '',
-  weeks: Array.isArray(r.weeks) ? r.weeks : [],
+  weeks: ensureWeekActionPlans(Array.isArray(r.weeks) ? r.weeks : []),
 });
 const toLines = (v) => {
   if (Array.isArray(v)) return v.map((s) => String(s).trim()).filter(Boolean);
@@ -660,7 +680,13 @@ export function getCurriculum() {
   if (!state.curriculum || !Array.isArray(state.curriculum.weeks)) {
     return defaultCurriculum();
   }
-  return state.curriculum;
+  // Normalize so Action Plan exists on every week for view + edit
+  const weeks = ensureWeekActionPlans(state.curriculum.weeks);
+  if (weeks !== state.curriculum.weeks) {
+    return { ...state.curriculum, weeks };
+  }
+  // ensureWeekActionPlans always returns a new array — use it
+  return { ...state.curriculum, weeks };
 }
 export const getQuizzes = () => state.quizzes;
 export const getQuizById = (id) => {
@@ -2224,13 +2250,19 @@ export function updateCurriculumWeek(weekNum, updates) {
   if (updates.assignment !== undefined) w.assignment = String(updates.assignment).trim();
   if (updates.discussion !== undefined) w.discussion = String(updates.discussion).trim();
   if (updates.discussionPublished !== undefined) w.discussionPublished = !!updates.discussionPublished;
-  if (updates.quiz !== undefined) w.quiz = toLines(updates.quiz);
+  // Action Plan checklist (stored as `quiz` for backwards compatibility)
+  if (updates.quiz !== undefined || updates.actionPlan !== undefined) {
+    const raw = updates.actionPlan !== undefined ? updates.actionPlan : updates.quiz;
+    w.quiz = toLines(raw);
+    w.actionPlan = w.quiz;
+  }
 
   // Publishing a week: if they uncheck "coming soon", ensure content arrays exist
   if (updates.pending === false) {
     w.objectives ??= [];
     w.steps ??= [];
     w.quiz ??= [];
+    w.actionPlan ??= w.quiz;
     w.assignment ??= '';
     w.discussion ??= '';
   }

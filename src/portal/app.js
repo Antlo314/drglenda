@@ -814,8 +814,16 @@ function weekPublishControls(w, { compact = false } = {}) {
   </div>`;
 }
 
+/** Action plan checklist for a week (`quiz` field in stored curriculum JSON). */
+function weekActionPlan(w) {
+  if (Array.isArray(w?.actionPlan) && w.actionPlan.length) return w.actionPlan;
+  if (Array.isArray(w?.quiz)) return w.quiz;
+  return [];
+}
+
 function weekBlock(w, open, { admin = false } = {}) {
   const published = !w.pending;
+  const actionPlan = weekActionPlan(w);
   const head = `<summary>
       <span class="wk-num">Week ${w.week}</span>
       <span class="wk-title">${esc(w.title || 'Coming soon')}</span>
@@ -839,14 +847,6 @@ function weekBlock(w, open, { admin = false } = {}) {
       .join('')}</${ordered ? 'ol' : 'ul'}>`;
   };
 
-  // Admins always reach here (pending student case returned above). Show
-  // content when present so instructors can review before publishing.
-  const emptyPending =
-    w.pending &&
-    !w.objectives?.length &&
-    !w.assignment &&
-    !w.discussion &&
-    !w.quiz?.length;
   // Graded work lives under My Tests; syllabus only links when a published test exists.
   const weekTests = admin
     ? store.getQuizzesForWeek(w.week)
@@ -863,19 +863,27 @@ function weekBlock(w, open, { admin = false } = {}) {
         </p>
       </div>`;
     }
-    const open = weekTests[0];
-    if (!open) return '';
+    const openTest = weekTests[0];
+    if (!openTest) return '';
     return `<div class="wk-sec"><h3>Weekly test</h3>
       <p class="wk-callout wk-assign">
-        Complete <strong>${esc(open.title)}</strong> under My Tests
-        ${open.due ? ` · due ${fmtDate(open.due)}` : ''}.
-        <button type="button" class="btn btn-primary btn-sm" data-action="go" data-route="quiz" data-id="${open.id}">Open test →</button>
+        Complete <strong>${esc(openTest.title)}</strong> under My Tests
+        ${openTest.due ? ` · due ${fmtDate(openTest.due)}` : ''}.
+        <button type="button" class="btn btn-primary btn-sm" data-action="go" data-route="quiz" data-id="${openTest.id}">Open test →</button>
       </p>
     </div>`;
   })();
-  const bodyInner = emptyPending
-    ? `<p class="muted">No content yet — use <strong>Edit</strong> to add details, then publish to students.</p>`
-    : `${section('Learning Objectives', list(w.objectives, false))}
+
+  // Action Plan is always present on every week (checklist; not the graded test).
+  const actionPlanInner =
+    list(actionPlan, true) ||
+    `<p class="muted">${
+      admin
+        ? 'No Action Plan items yet — click <strong>Edit</strong> and add one checklist item per line.'
+        : 'Action Plan items for this week will appear when your instructor publishes them.'
+    }</p>`;
+
+  const bodyInner = `${section('Learning Objectives', list(w.objectives, false))}
       ${section('Assignment', w.assignment ? `<p class="wk-callout wk-assign">${esc(w.assignment)}</p>` : '')}
       ${section(
         'Discussion Post',
@@ -883,16 +891,17 @@ function weekBlock(w, open, { admin = false } = {}) {
           ? `<p class="wk-callout wk-discuss">${esc(w.discussion).replace(/\n/g, '<br />')}</p>`
           : ''
       )}
-      ${section(
-        'Action plan',
-        list(w.quiz, true) ||
-          `<p class="muted">${
-            admin
-              ? 'No action plan items yet — add them in Edit (this is a checklist for the week, not the graded test).'
-              : 'Action plan items for this week will appear when your instructor publishes them.'
-          }</p>`
-      )}
+      ${section('Action Plan', actionPlanInner)}
       ${testCta}
+      ${
+        admin &&
+        !w.objectives?.length &&
+        !w.assignment &&
+        !w.discussion &&
+        !actionPlan.length
+          ? `<p class="muted">Add objectives, assignment, discussion, and Action Plan under <strong>Edit</strong>.</p>`
+          : ''
+      }
       ${w.pending ? `<p class="muted curric-pending-note">This week is not visible to students yet.</p>` : ''}`;
 
   return `<details class="wk${w.pending ? ' wk-pending' : ''}${admin ? ' wk-admin' : ''}"${open ? ' open' : ''} data-week="${w.week}">
@@ -938,17 +947,19 @@ function weekEditor(w, open) {
         <textarea rows="2" placeholder="What motivated you to become an entrepreneur?"
           data-action="curric-week-discussion" data-week="${wk}">${esc(w.discussion || '')}</textarea>
       </label>
-      <label class="field"><span>Action plan <em class="muted">(one checklist item per line · not graded My Tests)</em></span>
-        <textarea rows="6" placeholder="Complete the self-assessment worksheet.&#10;Draft your business vision statement."
-          data-action="curric-week-quiz" data-week="${wk}">${esc(linesText(w.quiz))}</textarea>
+      <label class="field"><span>Action Plan <em class="muted">(one checklist item per line · every week · not graded My Tests)</em></span>
+        <textarea rows="6" class="curric-action-plan"
+          placeholder="1. Complete this week’s worksheet.&#10;2. Draft your plan.&#10;3. Bring questions to class."
+          data-action="curric-week-quiz" data-week="${wk}">${esc(linesText(weekActionPlan(w)))}</textarea>
       </label>
+      <p class="hint muted" style="margin-top:-0.35rem">Students see this as an ordered Action Plan checklist. Save to keep changes.</p>
       <div class="curric-edit-actions">
         <button type="button" class="btn btn-sm ${published ? 'btn-outline' : 'btn-primary'}"
           data-action="toggle-curric-week-publish" data-week="${wk}">
           ${published ? 'Unpublish from students' : 'Publish to students'}
         </button>
         <button type="button" class="btn btn-primary btn-sm" data-action="save-curric-week" data-week="${wk}">
-          Save
+          Save week
         </button>
         <button type="button" class="btn btn-outline btn-sm btn-danger-outline" data-action="delete-curric-week" data-week="${wk}">
           Delete
@@ -3697,7 +3708,21 @@ app.addEventListener('click', async (e) => {
       break;
     case 'save-curric-week': {
       const wk = Number(d.week);
-      toast(`Week ${wk} saved ✓`);
+      // Flush all editor fields for this week (including Action Plan) into the store
+      const root = node.closest('.wk-edit') || node.closest('.wk') || app;
+      const val = (sel) => root.querySelector(sel)?.value ?? '';
+      const plan = val(`textarea[data-action="curric-week-quiz"][data-week="${wk}"]`);
+      store.updateCurriculumWeek(wk, {
+        title: val(`input[data-action="curric-week-title"][data-week="${wk}"]`),
+        objectives: val(`textarea[data-action="curric-week-objectives"][data-week="${wk}"]`),
+        assignment: val(`textarea[data-action="curric-week-assignment"][data-week="${wk}"]`),
+        discussion: val(`textarea[data-action="curric-week-discussion"][data-week="${wk}"]`),
+        quiz: plan,
+        actionPlan: plan,
+      });
+      curricOpenWeek = wk;
+      toast(`Week ${wk} saved · Action Plan updated ✓`);
+      render();
       break;
     }
     case 'toggle-curric-week-publish': {
@@ -5300,9 +5325,13 @@ app.addEventListener('change', async (e) => {
     render();
   } else if (action === 'curric-week-quiz') {
     curricOpenWeek = Number(node.dataset.week);
-    store.updateCurriculumWeek(node.dataset.week, { quiz: node.value });
-    toast('Action plan saved ✓');
-    render();
+    store.updateCurriculumWeek(node.dataset.week, {
+      quiz: node.value,
+      actionPlan: node.value,
+    });
+    toast('Action Plan saved ✓');
+    // Don't full re-render on change — keeps cursor in the textarea while editing.
+    // View mode picks up items on next open / Save week / Edit exit.
   }
 });
 
