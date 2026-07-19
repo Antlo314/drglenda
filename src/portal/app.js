@@ -2160,15 +2160,6 @@ function adminStudentDetail() {
   </div>`;
 }
 
-/** Infer curriculum week number for a quiz (session week or "Week N" in title). */
-function quizWeekNum(quiz) {
-  if (!quiz) return null;
-  for (let w = 1; w <= 12; w++) {
-    if (store.quizMatchesWeek(quiz, w)) return w;
-  }
-  return null;
-}
-
 function adminGrading() {
   const queueAll = store.getGradingQueue();
   const gradedAll = store.getGradedSubmissions();
@@ -2773,8 +2764,15 @@ function adminContent() {
 
 /** Infer week number for a quiz (session week, else "Week N" in title). */
 function quizWeekNum(q) {
-  const sx = store.getSessionById(q.sessionId);
+  if (!q) return null;
+  const sx = q.sessionId ? store.getSessionById(q.sessionId) : null;
   if (sx && Number(sx.week) > 0) return Number(sx.week);
+  // Prefer shared matcher (title / session) when available
+  if (typeof store.quizMatchesWeek === 'function') {
+    for (let w = 1; w <= 12; w++) {
+      if (store.quizMatchesWeek(q, w)) return w;
+    }
+  }
   const m = String(q.title || '').match(/\bweek\s*(\d+)\b/i);
   return m ? Number(m[1]) : null;
 }
