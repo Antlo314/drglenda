@@ -938,7 +938,7 @@ function weekEditor(w, open) {
         <textarea rows="2" placeholder="What motivated you to become an entrepreneur?"
           data-action="curric-week-discussion" data-week="${wk}">${esc(w.discussion || '')}</textarea>
       </label>
-      <label class="field"><span>Action plan <em class="muted">(one per line)</em></span>
+      <label class="field"><span>Action plan <em class="muted">(one checklist item per line · not graded My Tests)</em></span>
         <textarea rows="6" placeholder="Complete the self-assessment worksheet.&#10;Draft your business vision statement."
           data-action="curric-week-quiz" data-week="${wk}">${esc(linesText(w.quiz))}</textarea>
       </label>
