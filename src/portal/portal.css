@@ -864,6 +864,44 @@ body.side-nav-open { overflow: hidden; }
   color: var(--ok);
   border-color: rgba(42, 122, 75, 0.12);
 }
+/* Admin grading — week filter chips */
+.grade-week-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.grade-week-chip {
+  appearance: none;
+  border: 1px solid var(--line-strong);
+  background: var(--white);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.grade-week-chip:hover {
+  border-color: var(--maroon);
+  background: var(--cream);
+}
+.grade-week-chip.is-active {
+  background: var(--maroon);
+  border-color: var(--maroon);
+  color: var(--white);
+}
+.grade-week-count {
+  font-weight: 500;
+  opacity: 0.85;
+  font-size: 0.78rem;
+}
+.grade-week-chip.is-active .grade-week-count {
+  opacity: 0.9;
+}
+
 .pill-todo {
   background: var(--grey-bg);
   color: var(--grey);

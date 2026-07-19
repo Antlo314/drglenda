@@ -20,6 +20,25 @@ let curricOpenWeek = null;
 let curricEditing = false;
 /** Admin Tests page: quiz id currently open in the edit form (null = create mode). */
 let editingQuizId = null;
+/** Admin Grading: filter by curriculum week (`all` or number). Persists in session. */
+const GRADE_WEEK_KEY = 'umof_grade_week';
+function getGradeWeekFilter() {
+  try {
+    const raw = sessionStorage.getItem(GRADE_WEEK_KEY);
+    if (raw === 'all' || raw == null || raw === '') return 'all';
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : 'all';
+  } catch {
+    return 'all';
+  }
+}
+function setGradeWeekFilter(v) {
+  try {
+    sessionStorage.setItem(GRADE_WEEK_KEY, v === 'all' || v == null ? 'all' : String(v));
+  } catch {
+    /* */
+  }
+}
 
 /** Ensure Dr. Glenda S. Williams is always shown with , CFWF. */
 function displayNameWithCfwf(name) {
@@ -2141,17 +2160,71 @@ function adminStudentDetail() {
   </div>`;
 }
 
+/** Infer curriculum week number for a quiz (session week or "Week N" in title). */
+function quizWeekNum(quiz) {
+  if (!quiz) return null;
+  for (let w = 1; w <= 12; w++) {
+    if (store.quizMatchesWeek(quiz, w)) return w;
+  }
+  return null;
+}
+
 function adminGrading() {
-  const queue = store.getGradingQueue();
-  const graded = store.getGradedSubmissions();
+  const queueAll = store.getGradingQueue();
+  const gradedAll = store.getGradedSubmissions();
+  const weekFilter = getGradeWeekFilter();
+
+  const weekSet = new Set();
+  for (const g of [...queueAll, ...gradedAll]) {
+    const w = quizWeekNum(g.quiz);
+    if (w) weekSet.add(w);
+  }
+  // Always offer Week 1–2 (live tests) even if empty
+  weekSet.add(1);
+  weekSet.add(2);
+  const weeks = [...weekSet].sort((a, b) => a - b);
+
+  const matchWeek = (g) => {
+    if (weekFilter === 'all') return true;
+    return quizWeekNum(g.quiz) === Number(weekFilter);
+  };
+  const queue = queueAll.filter(matchWeek);
+  const graded = gradedAll.filter(matchWeek);
+
+  const qCount = (g) => {
+    const n = g.quiz?.questions?.length;
+    return n ? `${n} Q` : '';
+  };
+
+  const filterBar = `<div class="grade-week-bar" role="tablist" aria-label="Filter by week">
+    <button type="button" class="grade-week-chip${weekFilter === 'all' ? ' is-active' : ''}"
+      data-action="set-grade-week" data-week="all" role="tab" aria-selected="${weekFilter === 'all'}">All weeks</button>
+    ${weeks
+      .map(
+        (w) => {
+          const qn = queueAll.filter((g) => quizWeekNum(g.quiz) === w).length;
+          const gn = gradedAll.filter((g) => quizWeekNum(g.quiz) === w).length;
+          const active = weekFilter === w;
+          return `<button type="button" class="grade-week-chip${active ? ' is-active' : ''}"
+            data-action="set-grade-week" data-week="${w}" role="tab" aria-selected="${active}">
+            Week ${w}${qn || gn ? ` <span class="grade-week-count">${qn} open · ${gn} graded</span>` : ''}
+          </button>`;
+        }
+      )
+      .join('')}
+  </div>`;
+
+  const weekLabel = weekFilter === 'all' ? 'All weeks' : `Week ${weekFilter}`;
+
   return `
   ${pageHeadHelp(
     'Grading',
-    `${queue.length} awaiting review · ${graded.length} graded`,
+    `${weekLabel}: ${queue.length} awaiting · ${graded.length} graded`,
     {
       helpId: 'admin-grading',
       helpTitle: 'How to grade',
       helpSteps: [
+        'Filter by <strong>week</strong> so Week 1 and Week 2 tests stay separate.',
         'Open a <strong>Grade →</strong> item in the queue.',
         'Enter a score (and optional feedback), then save to release to the student.',
         'Use <strong>Edit</strong> on graded items to update a score later.',
@@ -2161,42 +2234,54 @@ function adminGrading() {
     }
   )}
   <section class="panel compact-panel">
-    <p class="muted" style="margin:0">
+    <p class="muted" style="margin:0 0 0.75rem">
       Grade with the <strong>Grading Breakdown</strong> table (<strong>Criteria</strong> and <strong>Points</strong>).
-      Use <strong>Edit</strong> on any graded row to update the score or feedback anytime.
-      New student work appears live; if something is missing, click <strong>Refresh submissions</strong>.
+      Filter by week to match each weekly test (Week 1 = 12 questions · Week 2 = 6 questions).
     </p>
+    ${filterBar}
   </section>
   <section class="panel">
-    <div class="panel-head"><h2>Awaiting review</h2></div>
+    <div class="panel-head"><h2>${weekFilter === 'all' ? 'Awaiting review' : `Week ${weekFilter} — Awaiting review`}</h2></div>
     ${
       queue.length
         ? `<div class="mini-list">${queue
             .map(
-              (g) => `<button class="mini-row" data-action="go" data-route="grade" data-student="${g.student.id}" data-quiz="${g.quizId}">
+              (g) => {
+                const w = quizWeekNum(g.quiz);
+                const qc = qCount(g);
+                return `<button class="mini-row" data-action="go" data-route="grade" data-student="${g.student.id}" data-quiz="${g.quizId}">
           ${avatar(g.student, 36)}
-          <span class="mr-main"><strong>${esc(g.student.name || g.student.email || 'Student')}</strong><small>${esc(g.quiz?.title || g.quizId)} · submitted ${fmtDate(g.submission.submittedAt)}</small></span>
+          <span class="mr-main"><strong>${esc(g.student.name || g.student.email || 'Student')}</strong><small>${w ? `Week ${w} · ` : ''}${esc(g.quiz?.title || g.quizId)}${qc ? ` · ${qc}` : ''} · submitted ${fmtDate(g.submission.submittedAt)}</small></span>
           <span class="btn btn-primary btn-sm">Grade →</span>
-        </button>`
+        </button>`;
+              }
             )
             .join('')}</div>`
-        : `<div class="empty"><div class="empty-ico">✓</div><h3>All caught up</h3><p class="muted">There are no submissions waiting to be graded. Ask the student to re-submit if they still see “Submitted” on their side, then hit Refresh.</p></div>`
+        : `<div class="empty"><div class="empty-ico">✓</div><h3>${weekFilter === 'all' ? 'All caught up' : `No Week ${weekFilter} work waiting`}</h3><p class="muted">${
+            weekFilter === 'all'
+              ? 'There are no submissions waiting to be graded. Ask the student to re-submit if they still see “Submitted” on their side, then hit Refresh.'
+              : `No submissions for Week ${weekFilter} right now. Switch to another week or hit Refresh.`
+          }</p></div>`
     }
   </section>
   <section class="panel">
-    <div class="panel-head"><h2>Graded scores</h2>
+    <div class="panel-head"><h2>${weekFilter === 'all' ? 'Graded scores' : `Week ${weekFilter} — Graded scores`}</h2>
       <span class="muted">Edit score, feedback, or Grading Breakdown anytime</span></div>
     ${
       graded.length
         ? `<div class="table-scroll"><table class="data-table compact">
-        <thead><tr><th>Student</th><th>Test</th><th>Score</th><th>Graded</th><th>Edit</th></tr></thead>
+        <thead><tr><th>Student</th><th>Week</th><th>Test</th><th>Qs</th><th>Score</th><th>Graded</th><th>Edit</th></tr></thead>
         <tbody>
           ${graded
             .map((g) => {
               const unit = (g.quiz?.type || 'manual') === 'manual' ? '/100' : '%';
+              const w = quizWeekNum(g.quiz);
+              const qc = g.quiz?.questions?.length || '—';
               return `<tr>
               <td><div class="cell-user">${avatar(g.student, 28)}<strong>${esc(g.student.name || g.student.email || 'Student')}</strong></div></td>
+              <td class="muted">${w != null ? w : '—'}</td>
               <td>${esc(g.quiz?.title || g.quizId)}</td>
+              <td class="muted">${qc}</td>
               <td><strong>${g.submission.score}${unit}</strong></td>
               <td class="muted">${fmtDate(g.submission.gradedAt || g.submission.submittedAt)}</td>
               <td><button class="btn btn-outline btn-sm" data-action="go" data-route="grade" data-student="${g.student.id}" data-quiz="${g.quizId}">Edit</button></td>
@@ -2205,7 +2290,11 @@ function adminGrading() {
             .join('')}
         </tbody>
       </table></div>`
-        : `<p class="muted">No graded submissions yet. Scores appear here after you grade a test — use Edit anytime to update them.</p>`
+        : `<p class="muted">${
+            weekFilter === 'all'
+              ? 'No graded submissions yet. Scores appear here after you grade a test — use Edit anytime to update them.'
+              : `No graded scores for Week ${weekFilter} yet.`
+          }</p>`
     }
   </section>`;
 }
@@ -2330,9 +2419,17 @@ function gradeView() {
       </div>`
     : '';
 
+  const weekN = quizWeekNum(quiz);
+  const qn = (quiz.questions || []).length;
   const meta = isEdit
     ? `graded ${fmtDate(sub.gradedAt)} · score ${sub.score}${unit}${sub.gradedBy ? ` · by ${esc(sub.gradedBy)}` : ''}`
     : `submitted ${fmtDate(sub.submittedAt)}`;
+  const weekMeta = [
+    weekN != null ? `Week ${weekN}` : null,
+    qn ? `${qn} question${qn === 1 ? '' : 's'}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return `
   <div class="back-row">
@@ -2340,7 +2437,7 @@ function gradeView() {
     <button class="back-link" data-action="go" data-route="admin-grading">← Grading</button>
   </div>
   <div class="page-head"><div class="cell-user big">${avatar(student, 48)}<div>
-    <h1>${esc(quiz.title)}</h1><p class="muted">${esc(student.name)} · ${meta}</p></div></div></div>
+    <h1>${esc(quiz.title)}</h1><p class="muted">${esc(student.name)}${weekMeta ? ` · ${weekMeta}` : ''} · ${meta}</p></div></div></div>
 
   ${submissionPanel}
 
@@ -3312,6 +3409,12 @@ app.addEventListener('click', async (e) => {
       } else {
         toast(res.error || 'Could not refresh submissions');
       }
+      render();
+      break;
+    }
+    case 'set-grade-week': {
+      const w = d.week === 'all' ? 'all' : Number(d.week);
+      setGradeWeekFilter(w === 'all' || !Number.isFinite(w) ? 'all' : w);
       render();
       break;
     }

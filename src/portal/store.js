@@ -102,6 +102,67 @@ function loadLocal() {
           dirty = true;
         }
       }
+      // Migration: restore Week 1 (12 Q) + Week 2 (6 Q) catalog when stale/short
+      if (Array.isArray(parsed.quizzes)) {
+        for (const seedQ of SEED.quizzes || []) {
+          if (!seedQ?.id || !Array.isArray(seedQ.questions) || !seedQ.questions.length) continue;
+          if (seedQ.id !== 'qw1' && seedQ.id !== 'qw2' && seedQ.id !== 'qwhy1') continue;
+          const idx = parsed.quizzes.findIndex((q) => q.id === seedQ.id);
+          const seedQs = seedQ.questions.map((qq, i) =>
+            typeof qq === 'string'
+              ? { id: `${seedQ.id}-${i + 1}`, prompt: qq }
+              : { id: qq.id || `${seedQ.id}-${i + 1}`, prompt: qq.prompt || '' }
+          );
+          if (idx < 0) {
+            parsed.quizzes.push({
+              ...structuredClone(seedQ),
+              questions: seedQs,
+            });
+            dirty = true;
+            continue;
+          }
+          const cur = parsed.quizzes[idx];
+          const curLen = Array.isArray(cur.questions) ? cur.questions.length : 0;
+          const needsRepair =
+            curLen !== seedQs.length ||
+            seedQs.some((sq, i) => {
+              const cq = cur.questions?.[i];
+              const cPrompt = typeof cq === 'string' ? cq : cq?.prompt;
+              return String(cPrompt || '').trim() !== String(sq.prompt || '').trim();
+            });
+          if (needsRepair) {
+            parsed.quizzes[idx] = {
+              ...cur,
+              title: seedQ.title || cur.title,
+              type: seedQ.type || cur.type || 'manual',
+              published: cur.published !== false,
+              due: cur.due || seedQ.due,
+              maxScore: cur.maxScore || seedQ.maxScore || 100,
+              sessionId: cur.sessionId ?? seedQ.sessionId ?? null,
+              questions: seedQs,
+            };
+            dirty = true;
+          }
+        }
+        // Also push curriculum week quiz lines onto primary week tests if longer
+        const weeks = parsed.curriculum?.weeks || SEED.curriculum?.weeks || [];
+        for (const w of weeks) {
+          const wNum = Number(w.week);
+          if (!wNum || !Array.isArray(w.quiz) || !w.quiz.length) continue;
+          const primaryId = wNum === 1 ? 'qw1' : wNum === 2 ? 'qw2' : null;
+          if (!primaryId) continue;
+          const q = parsed.quizzes.find((x) => x.id === primaryId);
+          if (!q) continue;
+          const expected = w.quiz.map((prompt, i) => ({
+            id: `${primaryId}-${i + 1}`,
+            prompt: typeof prompt === 'string' ? prompt : prompt?.prompt || '',
+          }));
+          if ((q.questions || []).length < expected.length) {
+            q.questions = expected;
+            dirty = true;
+          }
+        }
+      }
       if (dirty) {
         try { localStorage.setItem(KEY, JSON.stringify(parsed)); } catch { /* ignore */ }
       }
