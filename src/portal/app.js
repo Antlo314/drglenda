@@ -60,6 +60,56 @@ const esc = (v) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
   );
 
+/**
+ * Admin warning dialog for risky / irreversible actions.
+ * Explains what will happen before the admin continues.
+ *
+ * @param {object} opts
+ * @param {string} opts.title - Short action name (first line)
+ * @param {string[]} [opts.will] - Bullet list: what this will do
+ * @param {string[]} [opts.note] - Extra notes (archive, who is affected, etc.)
+ * @param {'soft'|'hard'|'irreversible'} [opts.severity]
+ * @param {boolean} [opts.requireType] - Second step: type DELETE
+ * @returns {boolean}
+ */
+function adminConfirmDanger({
+  title,
+  will = [],
+  note = [],
+  severity = 'hard',
+  requireType = false,
+} = {}) {
+  const lines = [String(title || 'Confirm action'), ''];
+  if (will.length) {
+    lines.push('What this will do:');
+    will.forEach((w) => lines.push(`• ${w}`));
+    lines.push('');
+  }
+  if (note.length) {
+    note.forEach((n) => lines.push(n));
+    lines.push('');
+  }
+  if (severity === 'irreversible') {
+    lines.push('⚠ IRREVERSIBLE for students in the live portal (they lose this data immediately).');
+  } else if (severity === 'hard') {
+    lines.push('⚠ Students will feel this change immediately.');
+  } else {
+    lines.push('You can reverse this later from the admin tools.');
+  }
+  lines.push('', 'Do you want to continue?');
+  if (!window.confirm(lines.join('\n'))) return false;
+  if (requireType) {
+    const typed = window.prompt(
+      'Final confirmation.\n\nType DELETE (all caps) to proceed.\nAnything else cancels.'
+    );
+    if (typed == null || typed.trim().toUpperCase() !== 'DELETE') {
+      toast('Cancelled — nothing was changed');
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Calendar date YYYY-MM-DD (exports, CRM date fields). */
 const todayISO = () => {
   const d = new Date();
@@ -3473,11 +3523,26 @@ app.addEventListener('click', async (e) => {
       render();
       break;
     }
-    case 'remove-allowed':
+    case 'remove-allowed': {
+      if (
+        !adminConfirmDanger({
+          title: `Remove approved email?`,
+          will: [
+            `Remove “${d.email || 'this email'}” from the signup allowlist.`,
+            'That person can no longer create a new student account.',
+            'Existing accounts (if they already signed up) are NOT deleted.',
+          ],
+          note: ['This does not erase their test answers or discussion posts.'],
+          severity: 'hard',
+        })
+      ) {
+        break;
+      }
       store.removeAllowedStudent(d.email);
       toast('Removed from approved list');
       render();
       break;
+    }
     case 'curric-edit':
       curricEditing = true;
       render();
@@ -3502,6 +3567,32 @@ app.addEventListener('click', async (e) => {
       const week = (store.getCurriculum().weeks || []).find((x) => Number(x.week) === wk);
       if (!week) break;
       const willPublish = !!week.pending; // pending true → publish (pending false)
+      if (willPublish) {
+        if (
+          !adminConfirmDanger({
+            title: `Publish Week ${wk} syllabus to students?`,
+            will: [
+              'Students will see full Week syllabus content (objectives, assignment, etc.).',
+              'This goes live immediately for anyone logged in as a student.',
+            ],
+            severity: 'soft',
+          })
+        ) {
+          break;
+        }
+      } else if (
+        !adminConfirmDanger({
+          title: `Unpublish Week ${wk} syllabus?`,
+          will: [
+            'Students will only see “coming soon” for this week’s curriculum.',
+            'They keep any test answers and discussion posts already saved.',
+          ],
+          note: ['You can publish again anytime.'],
+          severity: 'hard',
+        })
+      ) {
+        break;
+      }
       curricOpenWeek = wk;
       store.updateCurriculumWeek(wk, { pending: !willPublish });
       toast(
@@ -3522,21 +3613,45 @@ app.addEventListener('click', async (e) => {
     }
     case 'delete-curric-week': {
       const wk = Number(d.week);
-      if (confirm(`Delete Week ${wk} from the curriculum? Students will no longer see it.`)) {
-        store.deleteCurriculumWeek(wk);
-        if (Number(curricOpenWeek) === wk) curricOpenWeek = null;
-        toast(`Week ${wk} deleted`);
-        render();
+      if (
+        !adminConfirmDanger({
+          title: `Delete Week ${wk} from the curriculum?`,
+          will: [
+            `Remove Week ${wk} from the syllabus outline permanently in the portal.`,
+            'Students will no longer see that week’s curriculum content.',
+            'Linked tests, sessions, and past student answers are NOT auto-deleted (manage those separately).',
+          ],
+          note: ['Prefer Unpublish if you only want to hide the week from students.'],
+          severity: 'irreversible',
+          requireType: true,
+        })
+      ) {
+        break;
       }
+      store.deleteCurriculumWeek(wk);
+      if (Number(curricOpenWeek) === wk) curricOpenWeek = null;
+      toast(`Week ${wk} deleted`);
+      render();
       break;
     }
     case 'delete-material': {
       const mat = store.getAllMaterials().find((m) => m.id === d.id);
-      if (confirm(`Delete “${mat?.title || 'this material'}”? This can't be undone.`)) {
-        store.deleteMaterial(d.id);
-        toast('Material deleted');
-        render();
+      if (
+        !adminConfirmDanger({
+          title: `Delete class material?`,
+          will: [
+            `Delete “${mat?.title || 'this material'}” from the materials library.`,
+            'Students will no longer see or open this resource.',
+          ],
+          note: ['This cannot be undone from the portal (re-upload if needed).'],
+          severity: 'irreversible',
+        })
+      ) {
+        break;
       }
+      store.deleteMaterial(d.id);
+      toast('Material deleted');
+      render();
       break;
     }
     case 'delete-post': {
@@ -3544,12 +3659,27 @@ app.addEventListener('click', async (e) => {
       const post = store.getDiscussion().find((p) => p.id === d.id);
       if (!post) break;
       const mine = post.authorId === user.id;
-      if (confirm(mine ? 'Delete your message?' : `Delete ${post.authorName || 'this'}’s message?`)) {
-        store.deleteDiscussionPost(d.id);
-        if (disc.replyToId === d.id) disc.replyToId = null;
-        toast('Message deleted');
-        render();
+      const who = mine ? 'your message' : `${post.authorName || 'this student'}’s message`;
+      if (
+        !adminConfirmDanger({
+          title: `Delete discussion ${mine ? 'post' : 'post (moderation)'}?`,
+          will: [
+            `Remove ${who} from the live discussion board.`,
+            'Classmates will no longer see that text.',
+          ],
+          note: [
+            'If the failsafe archive is installed on Supabase, a backup copy may still exist for admins.',
+            'Students cannot restore the post themselves.',
+          ],
+          severity: 'irreversible',
+        })
+      ) {
+        break;
       }
+      store.deleteDiscussionPost(d.id);
+      if (disc.replyToId === d.id) disc.replyToId = null;
+      toast('Message deleted');
+      render();
       break;
     }
     case 'reply-post': {
@@ -3588,6 +3718,32 @@ app.addEventListener('click', async (e) => {
       const ta = document.querySelector(`textarea[data-action="disc-week-prompt"][data-week="${week}"]`);
       if (ta) store.updateCurriculumWeek(week, { discussion: ta.value });
       const nextLive = !isDiscussionLive(w);
+      if (nextLive) {
+        if (
+          !adminConfirmDanger({
+            title: `Publish Week ${week} discussion to students?`,
+            will: [
+              'Students can open Discussion for this week and post answers.',
+              'They will see the discussion prompt you saved.',
+            ],
+            severity: 'soft',
+          })
+        ) {
+          break;
+        }
+      } else if (
+        !adminConfirmDanger({
+          title: `Take Week ${week} discussion offline?`,
+          will: [
+            'Students can no longer post to this week’s discussion.',
+            'Existing posts stay in the database (and archive, if installed).',
+            'Students will see the week as offline until you publish again.',
+          ],
+          severity: 'hard',
+        })
+      ) {
+        break;
+      }
       // Publishing discussion also needs the syllabus week visible to students
       const updates = { discussionPublished: nextLive };
       if (nextLive && w.pending) updates.pending = false;
@@ -3678,6 +3834,32 @@ app.addEventListener('click', async (e) => {
       const q = store.getQuizById(d.id);
       if (!q) break;
       const goingLive = !q.published;
+      if (goingLive) {
+        if (
+          !adminConfirmDanger({
+            title: `Publish test “${q.title}”?`,
+            will: [
+              'Students will see this test under My Tests immediately.',
+              'They can open it, answer questions, and submit for grading.',
+            ],
+            severity: 'soft',
+          })
+        ) {
+          break;
+        }
+      } else if (
+        !adminConfirmDanger({
+          title: `Take test “${q.title}” offline?`,
+          will: [
+            'Students will no longer see this test under My Tests.',
+            'Existing submissions stay for grading (not deleted).',
+            'You can publish it again later.',
+          ],
+          severity: 'hard',
+        })
+      ) {
+        break;
+      }
       const res = await store.setQuizPublished(q.id, goingLive);
       if (!res?.ok) {
         toast(res?.error || 'Could not update publish state — try again');
@@ -3703,9 +3885,20 @@ app.addEventListener('click', async (e) => {
       const q = store.getQuizById(d.id);
       if (!q) break;
       if (
-        !confirm(
-          `Clear ALL student answers for “${q.title}”?\n\nEvery student will get a blank form again. This cannot be undone.`
-        )
+        !adminConfirmDanger({
+          title: `Clear ALL student answers for “${q.title}”?`,
+          will: [
+            'Delete every student’s live submission for this test.',
+            'Scores and graded feedback for this test disappear from Grading / My Tests.',
+            'Every student gets a blank form and must answer again.',
+          ],
+          note: [
+            'If Supabase failsafe archive is installed, prior answers may still be restorable for admins.',
+            'Students cannot recover their own answers after this.',
+          ],
+          severity: 'irreversible',
+          requireType: true,
+        })
       ) {
         break;
       }
@@ -3729,9 +3922,20 @@ app.addEventListener('click', async (e) => {
       const stu = store.getUserById(studentId);
       const q = store.getQuizById(quizId);
       if (
-        !confirm(
-          `Reset “${q?.title || quizId}” for ${stu?.name || 'this student'}?\n\nThey will get a blank form and can submit again.`
-        )
+        !adminConfirmDanger({
+          title: `Reset test for one student?`,
+          will: [
+            `Remove live answers for “${q?.title || quizId}”.`,
+            `Student: ${stu?.name || 'Unknown'} (${stu?.email || studentId}).`,
+            'Their My Tests form goes blank so they can submit again.',
+            'Any grade/score for this test is cleared from the live portal.',
+          ],
+          note: [
+            'If failsafe archive is installed, admins may still restore from submission_archive.',
+            'This student will not see their old answers until restored or re-submitted.',
+          ],
+          severity: 'irreversible',
+        })
       ) {
         break;
       }
@@ -3748,7 +3952,24 @@ app.addEventListener('click', async (e) => {
     case 'delete-quiz': {
       const q = store.getQuizById(d.id);
       if (!q) break;
-      if (!confirm(`Delete test “${q.title}”? Student submissions for it may be lost.`)) break;
+      if (
+        !adminConfirmDanger({
+          title: `Delete test “${q.title}”?`,
+          will: [
+            'Remove this test from the catalog and from student My Tests.',
+            'Live submissions tied to this test may be deleted (database cascade) or become unusable.',
+            'Discussion grades and other tests are not affected.',
+          ],
+          note: [
+            'Prefer “Take offline” if you only want to hide the test.',
+            'Archive snapshots may still hold past answers if failsafe SQL was run.',
+          ],
+          severity: 'irreversible',
+          requireType: true,
+        })
+      ) {
+        break;
+      }
       const res = await store.deleteQuiz(q.id);
       if (res.ok && editingQuizId === q.id) editingQuizId = null;
       toast(res.ok ? 'Test deleted' : res.error || 'Could not delete test');
@@ -3770,6 +3991,28 @@ app.addEventListener('click', async (e) => {
       const s = store.getSessionById(d.id);
       if (!s) break;
       const next = s.published === false;
+      if (next) {
+        if (
+          !adminConfirmDanger({
+            title: `Publish session “${s.title}”?`,
+            will: ['Students can open this class session / recording when Sessions is available.'],
+            severity: 'soft',
+          })
+        ) {
+          break;
+        }
+      } else if (
+        !adminConfirmDanger({
+          title: `Unpublish session “${s.title}”?`,
+          will: [
+            'Students lose access to this session immediately.',
+            'Completion history is kept; content is just hidden.',
+          ],
+          severity: 'hard',
+        })
+      ) {
+        break;
+      }
       const res = await store.setSessionPublished(s.id, next);
       if (!res?.ok) {
         toast(res?.error || 'Could not update session publish state');
@@ -3782,6 +4025,34 @@ app.addEventListener('click', async (e) => {
     case 'publish-week': {
       const wk = Number(d.week);
       const publish = d.publish !== '0' && d.publish !== 'false';
+      if (publish) {
+        if (
+          !adminConfirmDanger({
+            title: `Publish entire Week ${wk}?`,
+            will: [
+              'Syllabus for the week becomes visible to students (if not already).',
+              'All sessions for this week are published.',
+              'Linked tests for this week are set live under My Tests.',
+            ],
+            note: ['Students see the change immediately.'],
+            severity: 'hard',
+          })
+        ) {
+          break;
+        }
+      } else if (
+        !adminConfirmDanger({
+          title: `Unpublish entire Week ${wk}?`,
+          will: [
+            'Hide syllabus, sessions, and tests for this week from students.',
+            'Does NOT delete student answers or discussion posts already saved.',
+          ],
+          note: ['You can publish the week again later.'],
+          severity: 'hard',
+        })
+      ) {
+        break;
+      }
       const res = await store.setWeekPublished(wk, publish);
       if (!res?.ok) {
         toast(res?.error || `Could not update Week ${wk}`);
@@ -3797,14 +4068,42 @@ app.addEventListener('click', async (e) => {
     }
     case 'delete-session': {
       const s = store.getSessionById(d.id);
-      if (confirm(`Delete session “${s?.title || 'this session'}”? This cannot be undone.`)) {
-        store.deleteSession(d.id);
-        toast('Session deleted');
-        render();
+      if (
+        !adminConfirmDanger({
+          title: `Delete session “${s?.title || 'this session'}”?`,
+          will: [
+            'Remove this class session from the catalog.',
+            'Students lose access to its recording/materials link.',
+            'Materials attached only to this session may be orphaned or removed.',
+          ],
+          note: ['This cannot be undone from the portal.'],
+          severity: 'irreversible',
+          requireType: true,
+        })
+      ) {
+        break;
       }
+      store.deleteSession(d.id);
+      toast('Session deleted');
+      render();
       break;
     }
     case 'reset':
+      if (
+        !adminConfirmDanger({
+          title: 'Reset ALL demo data?',
+          will: [
+            'Wipe local demo progress, grades, CRM samples, and discussion seed data in this browser.',
+            'Reload the built-in sample students and Week tests.',
+            'Does NOT change your live Supabase production database.',
+          ],
+          note: ['Only available in local demo mode (no Supabase keys).'],
+          severity: 'irreversible',
+          requireType: true,
+        })
+      ) {
+        break;
+      }
       store.resetDemo();
       toast('Demo data reset');
       render();
@@ -3849,11 +4148,21 @@ app.addEventListener('click', async (e) => {
       break;
     case 'delete-lead': {
       const lead = store.getLeads().find((l) => l.id === d.id);
-      if (confirm(`Delete ${lead?.name || 'this record'}? This can't be undone.`)) {
-        store.deleteLead(d.id);
-        toast('Record deleted');
-        render();
+      if (
+        !adminConfirmDanger({
+          title: `Delete CRM record “${lead?.name || 'this person'}”?`,
+          will: [
+            'Permanently remove this lead/prospect from the CRM.',
+            'Does not delete a student portal account if they already enrolled.',
+          ],
+          severity: 'irreversible',
+        })
+      ) {
+        break;
       }
+      store.deleteLead(d.id);
+      toast('Record deleted');
+      render();
       break;
     }
     case 'enable-login': {
@@ -3869,11 +4178,23 @@ app.addEventListener('click', async (e) => {
       break;
     }
     case 'clear-leads':
-      if (confirm('Clear ALL leads from the CRM?\n\nThis permanently deletes every lead record and cannot be undone. (Enrolled students are not affected.)')) {
-        store.clearLeads();
-        toast('CRM cleared');
-        render();
+      if (
+        !adminConfirmDanger({
+          title: 'Clear ALL CRM leads?',
+          will: [
+            'Permanently delete every lead/prospect record in the CRM.',
+            'Enrolled student portal accounts are NOT deleted.',
+            'This cannot be undone from the portal.',
+          ],
+          severity: 'irreversible',
+          requireType: true,
+        })
+      ) {
+        break;
       }
+      store.clearLeads();
+      toast('CRM cleared');
+      render();
       break;
     case 'export-csv': {
       const r = crmRows();
