@@ -490,6 +490,40 @@ export async function hydrate(user) {
   ]);
   next.sessions = (sessions || []).map(mapSession);
   next.quizzes = (quizzes || []).map(mapQuiz);
+  // Repair Week 2 (and similar) if options were saved as separate free-response rows
+  next.quizzes = next.quizzes.map((q) => {
+    if (!q?.id || !Array.isArray(q.questions)) return q;
+    const fixed = normalizeQuestions(q.id, q.questions);
+    if (fixed.length && fixed.length !== q.questions.length) {
+      const allMc =
+        fixed.every((qq) => Array.isArray(qq.options) && qq.options.length >= 2);
+      const allKeyed =
+        allMc && fixed.every((qq) => qq.correctIndex != null && Number.isFinite(Number(qq.correctIndex)));
+      return {
+        ...q,
+        questions: fixed,
+        type: allKeyed ? 'auto' : q.type || 'manual',
+      };
+    }
+    // Ensure auto quizzes with options still have a usable questions array
+    if (q.type === 'auto' && fixed.length) {
+      return { ...q, questions: fixed };
+    }
+    return q;
+  });
+  // Prefer seed Week 2 bank if live catalog has no usable MC options
+  const seedQw2 = (SEED.quizzes || []).find((x) => x.id === 'qw2');
+  const liveQw2 = next.quizzes.find((x) => x.id === 'qw2');
+  if (seedQw2?.questions?.length && liveQw2) {
+    const liveHasMc = (liveQw2.questions || []).some(
+      (qq) => Array.isArray(qq.options) && qq.options.length >= 2
+    );
+    if (!liveHasMc) {
+      liveQw2.questions = structuredClone(seedQw2.questions);
+      liveQw2.type = seedQw2.type || liveQw2.type;
+      liveQw2.published = liveQw2.published !== false;
+    }
+  }
   // Single-row syllabus; fall back to the built-in default if empty / table missing
   if (curricRes?.data && !curricRes.error) {
     curriculumBackendOk = true;

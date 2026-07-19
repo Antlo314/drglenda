@@ -1675,17 +1675,24 @@ function sessionDetail(user) {
   </section>`;
 }
 
-/** Manual multi-question test (free-response and/or multiple choice). */
-const isStructuredManual = (q) => {
-  if (!q || q.type !== 'manual') return false;
+/**
+ * Multi-question bank (free-response and/or A–D MC).
+ * Includes type "auto" (auto-scored MC) so Week 2 MC tests open the same
+ * robust form path instead of the legacy quizForm (which crashed when options
+ * were missing or after MC repairs).
+ */
+const isMultiQuestionTest = (q) => {
+  if (!q) return false;
   const qs = Array.isArray(q.questions) ? q.questions : [];
-  return qs.length > 0;
+  return qs.length > 0 && (q.type === 'manual' || q.type === 'auto');
 };
 
 /** Pure free-response (no A/B/C/D options on any item). */
 const isWritten = (q) => {
-  if (!isStructuredManual(q)) return false;
-  return (q.questions || []).every((qq) => !Array.isArray(qq.options) || qq.options.length < 2);
+  if (!q || q.type !== 'manual') return false;
+  const qs = Array.isArray(q.questions) ? q.questions : [];
+  if (!qs.length) return false;
+  return qs.every((qq) => !Array.isArray(qq.options) || qq.options.length < 2);
 };
 
 const hasMcOptions = (qq) => Array.isArray(qq?.options) && qq.options.length >= 2;
@@ -1703,20 +1710,20 @@ function quizView(user) {
     return `<div class="page-head"><h1>${esc(q.title)}</h1></div>
     <section class="panel"><p class="muted">This test isn’t open yet. Your instructor will make it available when the class is ready.</p></section>`;
   }
-  const structured = isStructuredManual(q);
+  const multiQ = isMultiQuestionTest(q);
   const written = isWritten(q);
   // Only this student's own *valid* submission (stale/empty rows → blank form)
   const sub = store.getStudentSubmission(user.id, q.id);
   const sx = store.getSessionById(q.sessionId);
   const mcCount = (q.questions || []).filter(hasMcOptions).length;
   const kind =
-    q.type === 'auto'
-      ? 'Quiz'
-      : structured
+    q.type === 'auto' || (multiQ && mcCount === (q.questions || []).length && mcCount > 0)
+      ? mcCount
+        ? 'Multiple choice'
+        : 'Quiz'
+      : multiQ
         ? mcCount
-          ? mcCount === (q.questions || []).length
-            ? 'Multiple choice'
-            : 'Mixed test'
+          ? 'Mixed test'
           : 'Test'
         : 'Assignment';
   const back =
@@ -1730,8 +1737,8 @@ function quizView(user) {
     ${back}
     <div class="page-head"><div><span class="eyebrow">${kind}${q.due ? ` · Due ${fmtDate(q.due)}` : ''}</span><h1>${esc(q.title)}</h1></div></div>`;
 
-  /* ---- multi-question manual test (free-response + optional A/B/C/D) ---- */
-  if (structured) {
+  /* ---- multi-question test (manual free-response/MC + auto-scored MC) ---- */
+  if (multiQ) {
     const questions = q.questions || [];
     if (!questions.length) {
       return `${head}
@@ -1834,52 +1841,75 @@ function quizView(user) {
     </form>`;
   }
 
-  /* ---- already-graded auto quiz: show results ---- */
+  /* ---- legacy auto quiz fallback (no questions array / edge cases) ---- */
   if (q.type === 'auto' && sub) {
+    const qs = Array.isArray(q.questions) ? q.questions : [];
     return `${head}
     <section class="panel result-panel">
       <div class="big-score ${sub.score >= 70 ? 'pass' : 'fail'}">${sub.score}%</div>
-      <p>You answered <strong>${sub.correct} of ${sub.total}</strong> correctly · submitted ${fmtDate(sub.submittedAt)}.</p>
+      <p>You answered <strong>${sub.correct ?? '—'} of ${sub.total ?? qs.length}</strong> correctly · submitted ${fmtDate(sub.submittedAt)}.</p>
     </section>
     <section class="panel">
       <div class="panel-head"><h2>Review</h2></div>
-      ${q.questions
+      ${qs
         .map((qq, i) => {
           const chosen = sub.answers ? sub.answers[qq.id] : undefined;
+          const opts = Array.isArray(qq.options) ? qq.options : [];
           return `<div class="review-q">
             <p class="rq-prompt">${i + 1}. ${esc(qq.prompt)}</p>
-            ${qq.options
-              .map((opt, oi) => {
-                const isCorrect = oi === qq.correctIndex;
-                const isChosen = oi === chosen;
-                const cls = isCorrect ? 'opt-correct' : isChosen ? 'opt-wrong' : '';
-                const tag = isCorrect ? ' ✓' : isChosen ? ' ✗ your answer' : '';
-                return `<div class="opt ${cls}">${esc(opt)}${tag}</div>`;
-              })
-              .join('')}
+            ${
+              opts.length
+                ? opts
+                    .map((opt, oi) => {
+                      const isCorrect = oi === qq.correctIndex;
+                      const isChosen = oi === chosen || Number(chosen) === oi;
+                      const cls = isCorrect ? 'opt-correct' : isChosen ? 'opt-wrong' : '';
+                      const tag = isCorrect ? ' ✓' : isChosen ? ' ✗ your answer' : '';
+                      return `<div class="opt ${cls}">${store.indexToLetter(oi)}. ${esc(opt)}${tag}</div>`;
+                    })
+                    .join('')
+                : `<p class="answer-box">${esc(store.formatQuestionAnswer(qq, chosen))}</p>`
+            }
           </div>`;
         })
         .join('')}
     </section>`;
   }
 
-  /* ---- auto quiz, not taken: render the form ---- */
+  /* ---- legacy auto quiz form fallback ---- */
   if (q.type === 'auto') {
+    const qs = Array.isArray(q.questions) ? q.questions : [];
+    if (!qs.length) {
+      return `${head}<section class="panel"><p class="muted">This quiz has no questions yet.</p></section>`;
+    }
     return `${head}
-    <form id="quizForm" data-quiz="${q.id}" class="panel quiz-form">
-      ${q.questions
-        .map(
-          (qq, i) => `<fieldset class="quiz-q">
+    <form id="quizForm" data-quiz="${esc(q.id)}" class="panel quiz-form">
+      ${qs
+        .map((qq, i) => {
+          const opts = Array.isArray(qq.options) ? qq.options : [];
+          const fieldId = esc(qq.id);
+          if (!opts.length) {
+            return `<fieldset class="quiz-q">
         <legend>${i + 1}. ${esc(qq.prompt)}</legend>
-        ${qq.options
-          .map(
-            (opt, oi) => `<label class="opt-choice">
-              <input type="radio" name="${qq.id}" value="${oi}" required />
-              <span>${esc(opt)}</span></label>`
-          )
-          .join('')}
-      </fieldset>`
-        )
+        <p class="muted">No choices configured for this item.</p>
+      </fieldset>`;
+          }
+          return `<fieldset class="quiz-q quiz-q-mc">
+        <legend class="quiz-q-prompt">${i + 1}. ${esc(qq.prompt)}</legend>
+        <div class="mc-options" role="radiogroup" aria-label="Question ${i + 1}">
+          ${opts
+            .map((opt, oi) => {
+              const letter = store.indexToLetter(oi);
+              const rid = `${fieldId}-${oi}`;
+              return `<label class="opt-choice mc-choice" for="${rid}">
+              <input type="radio" id="${rid}" name="${fieldId}" value="${oi}" required />
+              <span><strong class="mc-letter">${letter}.</strong> ${esc(opt)}</span>
+            </label>`;
+            })
+            .join('')}
+        </div>
+      </fieldset>`;
+        })
         .join('')}
       <button type="submit" class="btn btn-primary">Submit quiz</button>
     </form>`;
