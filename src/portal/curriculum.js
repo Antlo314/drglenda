@@ -41,19 +41,14 @@ export const CURRICULUM = {
       discussion:
         'What motivated you to become an entrepreneur, and what challenges do you anticipate facing?',
       discussionPublished: true,
+      // Action plan (syllabus checklist) — graded tests live under My Tests, not here
       quiz: [
-        'What is a growth mindset?',
-        'Why is goal setting important in business?',
-        'What is the purpose of a business vision statement?',
-        'Name two characteristics of successful entrepreneurs.',
-        'What is entrepreneurial readiness?',
-        'Set a SMART goal for your business — make it Specific, Measurable, Achievable, Relevant, and Time-bound.',
-        'Complete and expand on this goal: “I will increase my monthly revenue by ______.” (Tip: a revenue target paired with a customer-retention strategy is a cheat code that shows lenders you can sustain growth.)',
-        'What are your financial goals?',
-        'What are your operational goals?',
-        'What are your marketing goals?',
-        'Write a vision statement for your business.',
-        'Write a personal vision statement for yourself.',
+        'Write your full “Why” reflection (use the Week 1 Why section under My Tests).',
+        'Identify your target market in one clear paragraph.',
+        'List short-term (90-day) and long-term (1–3 year) business goals.',
+        'Draft a business vision statement and a personal vision statement.',
+        'Complete a self-assessment of entrepreneurial readiness.',
+        'Submit your one-page Business Vision Plan.',
       ],
     },
 
@@ -80,24 +75,27 @@ export const CURRICULUM = {
       discussion:
         'Part 1. Many entrepreneurs start businesses without understanding the legal structure they need. In your opinion, should all entrepreneurs establish an LLC before launching their business? Why or why not? Support your response with examples.\n\nPart 2. Which business structure did you choose (or are considering), and what risk or tax factor influenced that decision most?',
       discussionPublished: true,
-      // Multiple-choice stems + A–D options (parsed into real MC on the test form)
+      // Action plan checklist (not the multiple-choice My Tests questions)
       quiz: [
-        'Which business structure provides the least liability protection?\nA. LLC\nB. Corporation\nC. Sole Proprietorship\nD. Nonprofit\nCorrect: C',
-        'What does LLC stand for?\nA. Limited Liability Company\nB. Legal Liability Corporation\nC. Limited Loan Company\nD. Licensed Liability Company\nCorrect: A',
-        'Which structure is often preferred by investors?\nA. Sole Proprietorship\nB. Corporation\nC. Partnership\nD. DBA\nCorrect: B',
+        'Decide your entity type (sole prop, LLC, corporation, etc.) and write why it fits.',
+        'Confirm or file your state business registration.',
+        'Obtain or verify your EIN with the IRS.',
+        'Open (or schedule) a dedicated business bank account.',
+        'List licenses, permits, and renewal dates for your industry/location.',
+        'Complete the one-page Business Structure Plan assignment.',
       ],
     },
 
-    // ── Weeks 3–12: pending — fill in content as class progresses ──
-    { week: 3,  pending: true, title: 'Business Credit & Financial Identity' },
-    { week: 4,  pending: true, title: 'Bookkeeping, Financials & Cash Flow' },
-    { week: 5,  pending: true, title: 'Building a Fundable Business Plan' },
-    { week: 6,  pending: true, title: 'Grants, Loans & Investor Capital' },
-    { week: 7,  pending: true, title: 'The Funding Pitch & Lender Relationships' },
-    { week: 8,  pending: true, title: 'Government Contracting & Procurement' },
-    { week: 9,  pending: true, title: 'Marketing, Branding & Digital Presence' },
-    { week: 10, pending: true, title: 'Operations, Scaling & Team Building' },
-    { week: 11, pending: true, title: 'Financial Management & Tax Strategy' },
-    { week: 12, pending: true, title: 'Funding Readiness Assessment & Next Steps' },
+    // ── Weeks 3–12: pending — action plan ready for admin to fill ──
+    { week: 3,  pending: true, title: 'Business Credit & Financial Identity', quiz: [] },
+    { week: 4,  pending: true, title: 'Bookkeeping, Financials & Cash Flow', quiz: [] },
+    { week: 5,  pending: true, title: 'Building a Fundable Business Plan', quiz: [] },
+    { week: 6,  pending: true, title: 'Grants, Loans & Investor Capital', quiz: [] },
+    { week: 7,  pending: true, title: 'The Funding Pitch & Lender Relationships', quiz: [] },
+    { week: 8,  pending: true, title: 'Government Contracting & Procurement', quiz: [] },
+    { week: 9,  pending: true, title: 'Marketing, Branding & Digital Presence', quiz: [] },
+    { week: 10, pending: true, title: 'Operations, Scaling & Team Building', quiz: [] },
+    { week: 11, pending: true, title: 'Financial Management & Tax Strategy', quiz: [] },
+    { week: 12, pending: true, title: 'Funding Readiness Assessment & Next Steps', quiz: [] },
   ],
 };

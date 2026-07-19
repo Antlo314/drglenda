@@ -883,7 +883,15 @@ function weekBlock(w, open, { admin = false } = {}) {
           ? `<p class="wk-callout wk-discuss">${esc(w.discussion).replace(/\n/g, '<br />')}</p>`
           : ''
       )}
-      ${section('Action plan', list(w.quiz, true))}
+      ${section(
+        'Action plan',
+        list(w.quiz, true) ||
+          `<p class="muted">${
+            admin
+              ? 'No action plan items yet — add them in Edit (this is a checklist for the week, not the graded test).'
+              : 'Action plan items for this week will appear when your instructor publishes them.'
+          }</p>`
+      )}
       ${testCta}
       ${w.pending ? `<p class="muted curric-pending-note">This week is not visible to students yet.</p>` : ''}`;
 

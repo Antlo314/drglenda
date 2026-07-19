@@ -197,21 +197,39 @@ function loadLocal() {
             dirty = true;
           }
         }
-        // Also push curriculum week quiz lines onto primary week tests if longer
-        const weeks = parsed.curriculum?.weeks || SEED.curriculum?.weeks || [];
-        for (const w of weeks) {
+        // Curriculum `quiz` field is Action plan only — never copy it onto My Tests
+      }
+      // Migration: Action plan must not hold graded test questions (Week 1/2)
+      if (parsed.curriculum?.weeks?.length) {
+        const defWeeks = defaultCurriculum().weeks || [];
+        for (const w of parsed.curriculum.weeks) {
           const wNum = Number(w.week);
-          if (!wNum || !Array.isArray(w.quiz) || !w.quiz.length) continue;
-          const primaryId = wNum === 1 ? 'qw1' : wNum === 2 ? 'qw2' : null;
-          if (!primaryId) continue;
-          const q = parsed.quizzes.find((x) => x.id === primaryId);
-          if (!q) continue;
-          const expected = w.quiz.map((prompt, i) => ({
-            id: `${primaryId}-${i + 1}`,
-            prompt: typeof prompt === 'string' ? prompt : prompt?.prompt || '',
-          }));
-          if ((q.questions || []).length < expected.length) {
-            q.questions = expected;
+          const def = defWeeks.find((x) => Number(x.week) === wNum);
+          if (!def) continue;
+          // Replace Week 1 action plan if it still looks like the old 12-question test bank
+          if (wNum === 1 && Array.isArray(w.quiz)) {
+            const looksLikeTest =
+              w.quiz.some((line) => /growth mindset/i.test(String(line))) ||
+              w.quiz.some((line) => /SMART goal/i.test(String(line))) ||
+              w.quiz.length >= 10;
+            if (looksLikeTest && Array.isArray(def.quiz)) {
+              w.quiz = [...def.quiz];
+              dirty = true;
+            }
+          }
+          // Replace Week 2 action plan if it still holds MC / liability test lines
+          if (wNum === 2 && Array.isArray(w.quiz)) {
+            const looksLikeMcTest =
+              w.quiz.some((line) => /least liability|LLC stand for|preferred by investors/i.test(String(line))) ||
+              w.quiz.some((line) => /\bA\.\s*LLC\b|\bCorrect:\s*[A-D]\b/i.test(String(line)));
+            if (looksLikeMcTest && Array.isArray(def.quiz)) {
+              w.quiz = [...def.quiz];
+              dirty = true;
+            }
+          }
+          // Ensure every week has an action plan array (section always available)
+          if (!Array.isArray(w.quiz)) {
+            w.quiz = Array.isArray(def.quiz) ? [...def.quiz] : [];
             dirty = true;
           }
         }

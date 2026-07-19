@@ -9,53 +9,73 @@
    ========================================================================== */
 
 import { CURRICULUM } from './curriculum.js';
-import { parseQuestionBank } from './questionBank.js';
 
-// Weekly tests: curriculum quiz lines (free-response or multi-line MC blocks).
-const week1 = CURRICULUM.weeks.find((w) => w.week === 1);
-const week2 = CURRICULUM.weeks.find((w) => w.week === 2);
-
-function questionsFromCurriculumQuiz(quizId, quizLines) {
-  const text = (quizLines || []).join('\n\n');
-  const parsed = parseQuestionBank(text);
-  if (!parsed.length) {
-    return (quizLines || []).map((prompt, i) => ({ id: `${quizId}-${i + 1}`, prompt }));
-  }
-  return parsed.map((pq, i) => ({
-    id: `${quizId}-${i + 1}`,
-    prompt: pq.prompt,
-    ...(pq.options?.length ? { options: pq.options } : {}),
-    ...(pq.correctIndex != null ? { correctIndex: pq.correctIndex } : {}),
-  }));
-}
-
-const week1Questions = questionsFromCurriculumQuiz('qw1', week1?.quiz);
-const week2Questions = questionsFromCurriculumQuiz('qw2', week2?.quiz);
-const week2AllMc =
-  week2Questions.length > 0 &&
-  week2Questions.every((qq) => Array.isArray(qq.options) && qq.options.length >= 2);
-
+// Graded tests live only on My Tests (not under curriculum Action plan).
 const WEEK1_TEST = {
   id: 'qw1',
   sessionId: 's1',
   type: 'manual',
-  published: true, // active — students can answer to build their portfolio
-  due: '2026-07-13', // Monday
+  published: true,
+  due: '2026-07-13',
   title: 'Week 1 Test — Entrepreneurial Mindset & Business Foundation',
   maxScore: 100,
-  questions: week1Questions,
+  questions: [
+    { id: 'qw1-1', prompt: 'What is a growth mindset?' },
+    { id: 'qw1-2', prompt: 'Why is goal setting important in business?' },
+    { id: 'qw1-3', prompt: 'What is the purpose of a business vision statement?' },
+    { id: 'qw1-4', prompt: 'Name two characteristics of successful entrepreneurs.' },
+    { id: 'qw1-5', prompt: 'What is entrepreneurial readiness?' },
+    {
+      id: 'qw1-6',
+      prompt:
+        'Set a SMART goal for your business — make it Specific, Measurable, Achievable, Relevant, and Time-bound.',
+    },
+    {
+      id: 'qw1-7',
+      prompt:
+        'Complete and expand on this goal: “I will increase my monthly revenue by ______.” (Tip: a revenue target paired with a customer-retention strategy is a cheat code that shows lenders you can sustain growth.)',
+    },
+    { id: 'qw1-8', prompt: 'What are your financial goals?' },
+    { id: 'qw1-9', prompt: 'What are your operational goals?' },
+    { id: 'qw1-10', prompt: 'What are your marketing goals?' },
+    { id: 'qw1-11', prompt: 'Write a vision statement for your business.' },
+    { id: 'qw1-12', prompt: 'Write a personal vision statement for yourself.' },
+  ],
 };
 
 const WEEK2_TEST = {
   id: 'qw2',
-  // No week-2 session recording yet — title matching still associates this with Week 2
   sessionId: null,
-  type: week2AllMc ? 'auto' : 'manual',
+  type: 'auto',
   published: true,
   due: '2026-07-20',
   title: 'Week 2 Test — Business Structure & Legal Foundation',
   maxScore: 100,
-  questions: week2Questions,
+  questions: [
+    {
+      id: 'qw2-1',
+      prompt: 'Which business structure provides the least liability protection?',
+      options: ['LLC', 'Corporation', 'Sole Proprietorship', 'Nonprofit'],
+      correctIndex: 2,
+    },
+    {
+      id: 'qw2-2',
+      prompt: 'What does LLC stand for?',
+      options: [
+        'Limited Liability Company',
+        'Legal Liability Corporation',
+        'Limited Loan Company',
+        'Licensed Liability Company',
+      ],
+      correctIndex: 0,
+    },
+    {
+      id: 'qw2-3',
+      prompt: 'Which structure is often preferred by investors?',
+      options: ['Sole Proprietorship', 'Corporation', 'Partnership', 'DBA'],
+      correctIndex: 1,
+    },
+  ],
 };
 
 // Week 1 "Why" reflection — a separate portfolio deliverable, due before the quiz.
