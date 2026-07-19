@@ -2210,6 +2210,55 @@ function adminGrading() {
 
   const weekLabel = weekFilter === 'all' ? 'All weeks' : `Week ${weekFilter}`;
 
+  // Discussion grades: one score line per student per week (not full test rubric)
+  const discWeeks = weekFilter === 'all' ? weeks : [Number(weekFilter)];
+  const students = store.getStudents();
+  const discussionPanels = discWeeks
+    .map((w) => {
+      const rows = students
+        .map((s) => {
+          const posts = store.countDiscussionPostsForStudent(s.id, w);
+          const grade = store.getDiscussionGrade(s.id, w);
+          const scoreVal = grade?.score != null ? grade.score : '';
+          return `<tr>
+            <td><div class="cell-user">${avatar(s, 28)}<strong>${esc(s.name || s.email || 'Student')}</strong></div></td>
+            <td class="muted">${posts}</td>
+            <td>
+              <form class="disc-grade-form" data-student="${esc(s.id)}" data-week="${w}">
+                <div class="disc-grade-line">
+                  <input type="number" name="score" class="disc-grade-score" min="0" max="100" step="1"
+                    value="${scoreVal}" placeholder="—" aria-label="Discussion score for ${esc(s.name || 'student')}" />
+                  <span class="muted disc-grade-max">/100</span>
+                  <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                  ${
+                    grade?.score != null
+                      ? `<span class="pill pill-done" title="Saved ${fmtDate(grade.gradedAt)}">Saved ${grade.score}</span>`
+                      : `<span class="muted disc-grade-empty">—</span>`
+                  }
+                </div>
+              </form>
+            </td>
+          </tr>`;
+        })
+        .join('');
+      return `<section class="panel disc-grade-panel">
+        <div class="panel-head">
+          <h2>Week ${w} · Discussion grades</h2>
+          <span class="muted">One score per student (0–100) · posts from Discussion board</span>
+        </div>
+        <p class="muted disc-grade-lead">Enter a single participation score for each student. Count is top-level posts for this week (not replies).</p>
+        ${
+          students.length
+            ? `<div class="table-scroll"><table class="data-table compact disc-grade-table">
+            <thead><tr><th>Student</th><th>Posts</th><th>Score</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table></div>`
+            : `<p class="muted">No students on the roster yet.</p>`
+        }
+      </section>`;
+    })
+    .join('');
+
   return `
   ${pageHeadHelp(
     'Grading',
@@ -2219,7 +2268,8 @@ function adminGrading() {
       helpTitle: 'How to grade',
       helpSteps: [
         'Filter by <strong>week</strong> so Week 1 and Week 2 tests stay separate.',
-        'Open a <strong>Grade →</strong> item in the queue.',
+        'Use <strong>Discussion grades</strong> for a single participation score per student.',
+        'Open a <strong>Grade →</strong> item in the queue for full tests.',
         'Enter a score (and optional feedback), then save to release to the student.',
         'Use <strong>Edit</strong> on graded items to update a score later.',
         'Click <strong>Refresh submissions</strong> if something just came in.',
@@ -2231,9 +2281,11 @@ function adminGrading() {
     <p class="muted" style="margin:0 0 0.75rem">
       Grade with the <strong>Grading Breakdown</strong> table (<strong>Criteria</strong> and <strong>Points</strong>).
       Filter by week to match each weekly test (Week 1 = 12 questions · Week 2 = 6 questions).
+      Discussion posts use the <strong>single-line score</strong> tables below.
     </p>
     ${filterBar}
   </section>
+  ${discussionPanels}
   <section class="panel">
     <div class="panel-head"><h2>${weekFilter === 'all' ? 'Awaiting review' : `Week ${weekFilter} — Awaiting review`}</h2></div>
     ${
@@ -2782,7 +2834,9 @@ function quizWeekNum(q) {
 
 /** Admin: create / edit free-response weekly tests for student My Tests. */
 function adminWeeklyTestsPanel() {
-  const quizzes = [...store.getQuizzes()].sort((a, b) => {
+  const quizzes = [...store.getQuizzes()]
+    .filter((q) => !store.isDiscussionGradeQuizId?.(q.id) && q.kind !== 'discussion')
+    .sort((a, b) => {
     const wa = quizWeekNum(a) || 99;
     const wb = quizWeekNum(b) || 99;
     return wa - wb || String(a.title).localeCompare(String(b.title));
@@ -4278,6 +4332,30 @@ app.addEventListener('submit', async (e) => {
       unbusy();
       toast(`Could not save quiz: ${res.error || 'try again'}`, 4000);
       showConnBanner('Your quiz score could not be saved. Check your connection and try again.');
+    }
+    return;
+  }
+
+  if (form.classList?.contains('disc-grade-form')) {
+    const studentId = form.dataset.student;
+    const week = Number(form.dataset.week);
+    const score = form.score?.value;
+    const admin = currentUser();
+    const unbusy = setBusy(form, 'Saving…');
+    const res = await store.gradeDiscussion(
+      studentId,
+      week,
+      score,
+      '',
+      displayNameWithCfwf(admin?.name || '') || 'Instructor'
+    );
+    if (res.ok) {
+      toast(`Week ${week} discussion grade saved ✓`);
+      hideConnBanner();
+      render();
+    } else {
+      unbusy();
+      toast(res.error || 'Could not save discussion grade');
     }
     return;
   }

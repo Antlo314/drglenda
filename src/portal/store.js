@@ -612,7 +612,11 @@ export const getQuizzesForWeek = (weekNum) =>
  */
 export function findPrimaryWeekTest(weekNum) {
   const list = getQuizzesForWeek(weekNum).filter(
-    (q) => q.type === 'manual' && Array.isArray(q.questions) && q.questions.length > 0
+    (q) =>
+      q.type === 'manual' &&
+      !isDiscussionGradeQuizId(q.id) &&
+      Array.isArray(q.questions) &&
+      q.questions.length > 0
   );
   if (!list.length) return null;
   const notWhy = list.filter((q) => !/\bwhy\b/i.test(q.title || ''));
@@ -629,11 +633,76 @@ export function findPrimaryWeekTest(weekNum) {
 const byDue = (a, b) =>
   String(a.due || '9999-12-31').localeCompare(String(b.due || '9999-12-31')) ||
   String(a.title).localeCompare(String(b.title));
-export const getVisibleQuizzes = () => state.quizzes.filter((q) => q.published).sort(byDue);
+
+/** Discussion participation grades (admin Grading only — not My Tests). */
+export function isDiscussionGradeQuizId(id) {
+  return /^qdisc-w\d+$/i.test(String(id || ''));
+}
+export function discussionQuizId(weekNum) {
+  return `qdisc-w${Number(weekNum)}`;
+}
+export function discussionWeekFromQuizId(id) {
+  const m = String(id || '').match(/^qdisc-w(\d+)$/i);
+  return m ? Number(m[1]) : null;
+}
+export function makeDiscussionGradeQuiz(weekNum) {
+  const w = Math.max(1, Number(weekNum) || 1);
+  return {
+    id: discussionQuizId(w),
+    sessionId: null,
+    type: 'manual',
+    published: false, // never listed under student My Tests
+    due: null,
+    title: `Week ${w} Discussion`,
+    maxScore: 100,
+    kind: 'discussion',
+    questions: [
+      {
+        id: `${discussionQuizId(w)}-1`,
+        prompt: `Discussion participation / post quality for Week ${w}`,
+      },
+    ],
+  };
+}
+/** Ensure the catalog has a Week N discussion grade slot (for submissions FK + UI). */
+export function ensureDiscussionGradeQuiz(weekNum) {
+  const w = Math.max(1, Number(weekNum) || 1);
+  const id = discussionQuizId(w);
+  if (state.quizzes.some((q) => q.id === id)) return getQuizById(id);
+  const q = makeDiscussionGradeQuiz(w);
+  const next = structuredClone(state);
+  next.quizzes = [...(next.quizzes || []), q];
+  set(next);
+  // Best-effort remote insert (ignore if already exists)
+  push(() =>
+    supabase.from('quizzes').upsert(
+      {
+        id: q.id,
+        session_id: null,
+        type: 'manual',
+        title: q.title,
+        max_score: 100,
+        prompt: null,
+        questions: q.questions,
+        published: false,
+        due_date: null,
+      },
+      { onConflict: 'id' }
+    )
+  );
+  return q;
+}
+
+export const getVisibleQuizzes = () =>
+  state.quizzes.filter((q) => q.published && !isDiscussionGradeQuizId(q.id)).sort(byDue);
 export const getVisibleQuizzesForSession = (sid) =>
-  state.quizzes.filter((q) => q.published && q.sessionId === sid).sort(byDue);
+  state.quizzes
+    .filter((q) => q.published && q.sessionId === sid && !isDiscussionGradeQuizId(q.id))
+    .sort(byDue);
 export const getVisibleQuizzesForWeek = (weekNum) =>
-  getQuizzesForWeek(weekNum).filter((q) => q.published).sort(byDue);
+  getQuizzesForWeek(weekNum)
+    .filter((q) => q.published && !isDiscussionGradeQuizId(q.id))
+    .sort(byDue);
 export const getLeads = () =>
   [...state.leads].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 
@@ -842,6 +911,7 @@ export function getGradingQueue() {
   for (const student of studentsForGrading()) {
     const prog = getProgress(student.id);
     for (const [quizId, sub] of Object.entries(prog.submissions || {})) {
+      if (isDiscussionGradeQuizId(quizId)) continue; // graded on the Discussion panel
       if (!needsGrading(sub)) continue;
       out.push({
         student,
@@ -862,6 +932,7 @@ export function getGradedSubmissions() {
   for (const student of studentsForGrading()) {
     const prog = getProgress(student.id);
     for (const [quizId, sub] of Object.entries(prog.submissions || {})) {
+      if (isDiscussionGradeQuizId(quizId)) continue;
       if (sub.status === 'graded' && typeof sub.score === 'number') {
         out.push({
           student,
@@ -1619,6 +1690,80 @@ export async function gradeSubmission(studentId, quizId, payload, feedbackOrToda
     return { ok: false, error: saved.error };
   }
   return { ok: true, gradedAt: date };
+}
+
+/**
+ * Count top-level discussion posts (not replies) by a student for a curriculum week.
+ */
+export function countDiscussionPostsForStudent(studentId, weekNum) {
+  const w = Number(weekNum);
+  if (!studentId || !Number.isFinite(w)) return 0;
+  return getDiscussion().filter((p) => {
+    if (p.authorId !== studentId) return false;
+    if (p.parentId) return false; // grade participation on main posts
+    if (p.week == null || p.week === '') return false;
+    return Number(p.week) === w;
+  }).length;
+}
+
+/**
+ * One-line discussion grade for a student + week (0–100).
+ * Stored as a graded submission on quiz id `qdisc-w{N}` (hidden from My Tests).
+ */
+export async function gradeDiscussion(studentId, weekNum, score, feedback = '', gradedBy = '') {
+  const w = Math.max(1, Number(weekNum) || 1);
+  const n = Math.round(Number(score));
+  if (!studentId) return { ok: false, error: 'Missing student' };
+  if (!Number.isFinite(n) || n < 0 || n > 100) {
+    return { ok: false, error: 'Score must be 0–100' };
+  }
+  ensureDiscussionGradeQuiz(w);
+  const quizId = discussionQuizId(w);
+  const postCount = countDiscussionPostsForStudent(studentId, w);
+  const date = new Date().toISOString();
+  const previous = state.progress[studentId]?.submissions?.[quizId]
+    ? structuredClone(state.progress[studentId].submissions[quizId])
+    : undefined;
+
+  // Seed a minimal submission then grade it
+  const next = structuredClone(state);
+  next.progress[studentId] ??= { completed: [], submissions: {} };
+  next.progress[studentId].submissions[quizId] = {
+    type: 'manual',
+    status: 'submitted',
+    submittedAt: previous?.submittedAt || date,
+    answers: {
+      [`${quizId}-1`]: previous?.answers?.[`${quizId}-1`] ||
+        `Discussion Week ${w}: ${postCount} top-level post${postCount === 1 ? '' : 's'}`,
+    },
+  };
+  set(next);
+
+  const res = await gradeSubmission(studentId, quizId, {
+    score: n,
+    feedback: feedback || '',
+    gradeDerivation: `Discussion Week ${w} · single-line participation grade (${postCount} post${postCount === 1 ? '' : 's'}).`,
+    scoringMethod: 'instructor',
+    gradedBy: gradedBy || '',
+  }, date);
+
+  if (!res.ok && previous === undefined) {
+    // Clean empty slot if grade failed and we invented the row
+    const roll = structuredClone(state);
+    if (roll.progress[studentId]?.submissions?.[quizId]) {
+      delete roll.progress[studentId].submissions[quizId];
+      set(roll);
+    }
+  }
+  return res;
+}
+
+/** Read discussion grade for student + week, or null. */
+export function getDiscussionGrade(studentId, weekNum) {
+  const quizId = discussionQuizId(weekNum);
+  const sub = getProgress(studentId).submissions?.[quizId];
+  if (!sub || sub.status !== 'graded' || typeof sub.score !== 'number') return null;
+  return sub;
 }
 
 /**

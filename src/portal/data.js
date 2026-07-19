@@ -192,7 +192,38 @@ export const SEED = {
   // Week 1 deliverables: the "Why" reflection + the week test (curriculum quiz
   // lines). Week 2 test uses curriculum week 2 quiz lines. Free-response and
   // instructor-graded; students only see rows with published: true under My Tests.
-  quizzes: [WEEK1_WHY, WEEK1_TEST, WEEK2_TEST],
+  // qdisc-w* = discussion participation grades (admin Grading only, not My Tests).
+  quizzes: [
+    WEEK1_WHY,
+    WEEK1_TEST,
+    WEEK2_TEST,
+    {
+      id: 'qdisc-w1',
+      sessionId: null,
+      type: 'manual',
+      published: false,
+      due: null,
+      title: 'Week 1 Discussion',
+      maxScore: 100,
+      kind: 'discussion',
+      questions: [
+        { id: 'qdisc-w1-1', prompt: 'Discussion participation / post quality for Week 1' },
+      ],
+    },
+    {
+      id: 'qdisc-w2',
+      sessionId: null,
+      type: 'manual',
+      published: false,
+      due: null,
+      title: 'Week 2 Discussion',
+      maxScore: 100,
+      kind: 'discussion',
+      questions: [
+        { id: 'qdisc-w2-1', prompt: 'Discussion participation / post quality for Week 2' },
+      ],
+    },
+  ],
 
   // ---- Per-student progress + quiz submissions -------------------------------
   // completed: array of session ids the student has finished
