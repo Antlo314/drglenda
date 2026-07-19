@@ -1657,8 +1657,9 @@ function quizView(user) {
       return `${head}
       <section class="panel"><p class="muted">This test has no questions yet. Check back after your instructor finishes it.</p></section>`;
     }
-    const qaBlock = (answers) => `
-      <section class="panel"><div class="panel-head"><h2>Your answers</h2></div>
+    const qaBlock = (answers, title = 'Your answers') => `
+      <section class="panel"><div class="panel-head"><h2>${esc(title)}</h2>
+        <span class="muted">${questions.length} question${questions.length === 1 ? '' : 's'}</span></div>
         ${questions
           .map(
             (qq, i) => `<div class="review-q">
@@ -1669,7 +1670,7 @@ function quizView(user) {
           .join('')}
       </section>`;
 
-    // After grading only: lock answers and show score. Until then always a blank editable form.
+    // Graded: score + the same answers the instructor sees in Grading
     if (sub && sub.status === 'graded') {
       return `${head}
       <section class="panel result-panel">
@@ -1677,17 +1678,23 @@ function quizView(user) {
         <p>Graded ${fmtDate(sub.gradedAt)}</p>
         ${sub.feedback ? `<div class="feedback"><strong>Instructor feedback</strong><p>${esc(sub.feedback)}</p></div>` : ''}
       </section>
-      ${qaBlock(sub.answers)}`;
+      ${qaBlock(sub.answers, 'Your submitted answers')}`;
     }
 
-    // QUESTIONS + blank editable answer boxes only (never show/pre-fill old answers)
-    const resubmitNote =
-      sub && sub.status === 'submitted'
-        ? `<p class="hint">Type your answers in the empty boxes below, then submit. Old answers are not displayed.</p>`
-        : `<p class="muted">Questions only — answer boxes are empty. Fill them in, then submit for grading.</p>`;
+    // Submitted, awaiting grade: show the student's own answers (same data as admin Grading)
+    if (sub && sub.status === 'submitted') {
+      return `${head}
+      <section class="panel">
+        <div class="pending-banner">⏳ Submitted ${fmtDateTime(sub.submittedAt) || fmtDate(sub.submittedAt)} — your instructor has your answers for grading.</div>
+        <p class="muted" style="margin:0.75rem 0 0">These are the answers on file. Contact your instructor if you need a reset to edit them.</p>
+      </section>
+      ${qaBlock(sub.answers, 'Your submitted answers')}`;
+    }
+
+    // Not started: blank form for first submission
     return `${head}
     <form id="writtenForm" data-quiz="${esc(q.id)}" class="panel quiz-form" autocomplete="off">
-      ${resubmitNote}
+      <p class="muted">Answer each question below, then submit for grading. Your answers will appear here after you submit.</p>
       ${questions
         .map((qq, i) => {
           const fieldId = esc(qq.id);
@@ -1700,9 +1707,7 @@ function quizView(user) {
       </fieldset>`;
         })
         .join('')}
-      <button type="submit" class="btn btn-primary">${
-        sub && sub.status === 'submitted' ? 'Submit answers' : 'Submit for review'
-      }</button>
+      <button type="submit" class="btn btn-primary">Submit for review</button>
     </form>`;
   }
 
@@ -1795,8 +1800,8 @@ function studentTests(user) {
       helpTitle: 'How My Tests works',
       helpSteps: [
         'Only tests your instructor has published appear here.',
-        'Open a test — answer boxes start blank. Write your answers, then submit.',
-        'After you submit, your instructor grades it; scores and feedback show here.',
+        'Open a test, write your answers, then submit.',
+        'After you submit, open the test again to see your answers; scores show once graded.',
       ],
     })}
     <section class="panel"><div class="empty"><div class="empty-ico">📝</div><h3>No tests open yet</h3>
@@ -1805,15 +1810,12 @@ function studentTests(user) {
   const rows = quizzes.map((q) => {
     const sub = store.getStudentSubmission(user.id, q.id);
     const written = isWritten(q);
-    // Free-response tests stay fillable until graded — never lock on old answers
     const status =
       sub?.status === 'graded'
         ? '<span class="pill pill-done">Graded</span>'
-        : sub?.status === 'submitted' && !written
+        : sub?.status === 'submitted'
           ? '<span class="pill pill-pending">Submitted — awaiting grade</span>'
-          : sub?.status === 'submitted' && written
-            ? '<span class="pill pill-todo">Open — answer below</span>'
-            : '<span class="pill pill-todo">Open — not started</span>';
+          : '<span class="pill pill-todo">Open — not started</span>';
     const score =
       sub?.status === 'graded' && sub.score != null
         ? q.type === 'auto'
@@ -1824,11 +1826,11 @@ function studentTests(user) {
     const cta =
       sub?.status === 'graded'
         ? 'View results'
-        : written
-          ? 'Answer questions'
-          : !sub
-            ? 'Start'
-            : 'View submission';
+        : sub?.status === 'submitted'
+          ? 'View your answers'
+          : written
+            ? 'Answer questions'
+            : 'Start';
     return { q, sub, status, score, type, cta };
   });
 
@@ -1838,8 +1840,9 @@ function studentTests(user) {
     helpTitle: 'How My Tests works',
     helpSteps: [
       'Only tests marked Live by your instructor appear here.',
-      'Open a test — you see the <strong>questions</strong> and blank answer boxes only.',
-      'Type your answers, submit, and your instructor grades them.',
+      'Open a test, answer the questions, and submit for grading.',
+      'After you submit, open the test again to <strong>see your answers</strong> (the same ones your instructor grades).',
+      'When graded, your score and feedback show here too.',
     ],
   })}
   <section class="panel mobile-cards-only">
@@ -2831,7 +2834,7 @@ function adminWeeklyTestsPanel() {
     </div>
     <p class="hint" style="margin-top:0">
       Write free-response questions (one per line). Students only see tests marked
-      <strong>● Live</strong> under <strong>My Tests</strong> — answer boxes start <strong>blank</strong>
+      <strong>● Live</strong> under <strong>My Tests</strong> — students submit answers, then can reopen to <strong>view what they submitted</strong>
       until they submit. Use <strong>Reset answers</strong> to wipe old submissions so students can start over.
     </p>
 
