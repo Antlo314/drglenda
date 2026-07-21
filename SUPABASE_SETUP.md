@@ -79,6 +79,20 @@ New installs that run the full [`schema.sql`](supabase/schema.sql) already inclu
 They store optional grade metadata (`grade_derivation`, `question_scores`, `scoring_method`,
 `graded_by`) used by the portal’s **Grading Breakdown** when scoring written work.
 
+## Class profile hub (required for My Profile + Discussion profiles)
+
+Run once in **SQL Editor**:
+
+1. [`supabase/profiles-public-hub.sql`](supabase/profiles-public-hub.sql) — adds bio, social URLs, avatar path; lets authenticated classmates **read** profiles; storage policies for avatars.
+2. **Storage → New bucket**
+   - Name: `avatars`
+   - **Private** (not public)
+   - File size limit: **5 MB**
+   - Allowed MIME: `image/jpeg`, `image/png`, `image/webp`, `image/gif`
+3. Re-run the storage policy section at the bottom of `profiles-public-hub.sql` if the bucket was created after the first run.
+
+Students edit **My Profile** in the portal; classmates open profiles by clicking a name/avatar on **Discussion**.
+
 ## Answer failsafe archive (strongly recommended)
 
 Student test answers and discussion posts can be wiped by “Reset” or accidental deletes.

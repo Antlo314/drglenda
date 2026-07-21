@@ -273,9 +273,13 @@ export async function updatePassword(newPassword) {
 
 /** Update the signed-in user's display name (profile + auth metadata). */
 export async function updateDisplayName(name) {
-  if (!USE_SUPABASE || !cachedUser) return { ok: false, error: 'Not available.' };
+  if (!cachedUser) return { ok: false, error: 'Not available.' };
   const nm = String(name || '').trim();
   if (!nm) return { ok: false, error: 'Enter a display name.' };
+  if (!USE_SUPABASE || !supabase) {
+    cachedUser = { ...cachedUser, name: nm };
+    return { ok: true, user: cachedUser };
+  }
   try {
     const { error } = await supabase.from('profiles').update({ name: nm }).eq('id', cachedUser.id);
     if (error) return { ok: false, error: mapAuthError(error, 'profile') };
@@ -285,6 +289,13 @@ export async function updateDisplayName(name) {
   } catch (e) {
     return { ok: false, error: mapAuthError(e, 'profile') };
   }
+}
+
+/** Merge fields into the in-memory session user (after profile/avatar save). */
+export function mergeCachedUser(partial) {
+  if (!cachedUser || !partial) return cachedUser;
+  cachedUser = { ...cachedUser, ...partial };
+  return cachedUser;
 }
 
 /**

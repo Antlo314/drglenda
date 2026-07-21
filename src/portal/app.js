@@ -6,7 +6,7 @@ import './portal.css';
 import * as store from './store.js';
 import {
   login, logout, currentUser, initAuth, clearCachedUser, refreshSessionUser,
-  signUp, requestPasswordReset, updatePassword, updateDisplayName, onAuthEvent,
+  signUp, requestPasswordReset, updatePassword, updateDisplayName, mergeCachedUser, onAuthEvent,
   normalizeEmail, mapAuthError,
 } from './auth.js';
 import { downloadCSV, exportPDF, exportWord } from './export.js';
@@ -166,8 +166,37 @@ const avatarColor = (id) => {
   return AVATAR_COLORS[h];
 };
 
-const avatar = (user, size = 38) =>
-  `<span class="avatar" style="--sz:${size}px;background:${avatarColor(user.id)}">${esc(initials(user.name))}</span>`;
+/** Avatar: photo when available, else initials. Pass full profile when possible. */
+const avatar = (user, size = 38) => {
+  const u = user || { id: 'anon', name: '?' };
+  const resolved = u.avatarUrl
+    ? u
+    : u.id
+      ? store.getUserById(u.id) || u
+      : u;
+  if (resolved?.avatarUrl) {
+    return `<span class="avatar avatar-img" style="--sz:${size}px" title="${esc(resolved.name || '')}">
+      <img src="${esc(resolved.avatarUrl)}" alt="" width="${size}" height="${size}" loading="lazy" />
+    </span>`;
+  }
+  return `<span class="avatar" style="--sz:${size}px;background:${avatarColor(resolved?.id || u.id || 'x')}" title="${esc(resolved?.name || u.name || '')}">${esc(initials(resolved?.name || u.name || '?'))}</span>`;
+};
+
+/** Clickable author chip for discussion hub → public profile. */
+function profileLink(userLike, { size = 40, showName = false } = {}) {
+  const id = userLike?.id || userLike?.authorId || '';
+  if (!id || id === 'anon') {
+    return showName
+      ? `${avatar(userLike, size)}<strong>${esc(userLike?.name || 'Student')}</strong>`
+      : avatar(userLike, size);
+  }
+  const full = store.getUserById(id) || userLike;
+  const name = full.name || userLike.name || 'Student';
+  return `<button type="button" class="profile-link" data-action="view-profile" data-id="${esc(id)}" title="View profile">
+    ${avatar(full, size)}
+    ${showName ? `<strong class="profile-link-name">${esc(name)}</strong>` : ''}
+  </button>`;
+}
 
 const STATUS_OPTIONS = ['new', 'contacted', 'qualified', 'enrolled', 'lost'];
 
@@ -539,31 +568,69 @@ function renderAuthScreen() {
 }
 
 /* ===========================================================================
-   ACCOUNT (logged in) — change name & password
+   ACCOUNT / PROFILE HUB — editable profile, photo, socials + password
    ======================================================================== */
+function socialField(name, label, value, placeholder) {
+  return `<label class="field"><span>${esc(label)}</span>
+    <input type="url" name="${esc(name)}" value="${esc(value || '')}"
+      placeholder="${esc(placeholder || 'https://…')}" autocomplete="url" />
+  </label>`;
+}
+
 function accountView(user) {
-  const roleLabel = user.role === 'admin' ? 'Instructor' : 'Student';
+  const full = store.getUserById(user.id) || user;
+  const roleLabel = full.role === 'admin' ? 'Instructor' : 'Student';
   return `
   <div class="page-head"><div>
-    <h1>Account</h1>
-    <p class="muted">Manage your name and password.
-      <span class="pill ${user.role === 'admin' ? 'pill-enrolled' : 'pill-todo'}" style="margin-left:8px">${esc(roleLabel)}</span>
+    <h1>My Profile</h1>
+    <p class="muted">Your class hub profile — classmates can view this from Discussion.
+      <span class="pill ${full.role === 'admin' ? 'pill-enrolled' : 'pill-todo'}" style="margin-left:8px">${esc(roleLabel)}</span>
     </p>
+  </div>
+  <div class="head-actions">
+    <button type="button" class="btn btn-outline btn-sm" data-action="view-profile" data-id="${esc(full.id)}">Preview public profile</button>
   </div></div>
-  <div class="two-col">
+  <div class="two-col profile-edit-grid">
     <section class="panel">
       <div class="panel-head"><h2>Profile</h2></div>
-      <form id="nameForm" class="acct-form">
+      <div class="profile-avatar-row">
+        ${avatar(full, 88)}
+        <div class="profile-avatar-actions">
+          <label class="upload-btn sm">Upload photo
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" data-action="avatar-upload" hidden />
+          </label>
+          ${
+            full.avatarUrl || full.avatarPath
+              ? `<button type="button" class="btn btn-ghost btn-sm btn-danger-outline" data-action="avatar-remove">Remove photo</button>`
+              : ''
+          }
+          <p class="auth-hint">JPG, PNG, WebP or GIF · max 5 MB</p>
+        </div>
+      </div>
+      <form id="profileForm" class="acct-form">
         <label class="field"><span>Display name</span>
-          <input type="text" name="name" value="${esc(displayNameWithCfwf(user.name))}" required autocomplete="name" />
+          <input type="text" name="name" value="${esc(displayNameWithCfwf(full.name))}" required autocomplete="name" maxlength="120" />
         </label>
         <label class="field"><span>Email</span>
-          <input type="email" value="${esc(user.email)}" disabled />
+          <input type="email" value="${esc(full.email || '')}" disabled />
         </label>
-        <label class="field"><span>Workspace</span>
-          <input type="text" value="${esc(roleLabel)}" disabled />
+        <label class="field"><span>Phone</span>
+          <input type="tel" name="phone" value="${esc(full.phone || '')}" autocomplete="tel" placeholder="Optional" maxlength="40" />
         </label>
-        <button type="submit" class="btn btn-primary">Save name</button>
+        <label class="field"><span>Bio</span>
+          <textarea name="bio" rows="4" maxlength="2000" placeholder="Tell classmates about yourself…">${esc(full.bio || '')}</textarea>
+        </label>
+        <p class="auth-hint">Bio max 2,000 characters. Social links must start with https://</p>
+        <div class="profile-socials-form">
+          ${socialField('websiteUrl', 'Website', full.websiteUrl, 'https://yoursite.com')}
+          ${socialField('linkedinUrl', 'LinkedIn', full.linkedinUrl, 'https://linkedin.com/in/…')}
+          ${socialField('instagramUrl', 'Instagram', full.instagramUrl, 'https://instagram.com/…')}
+          ${socialField('facebookUrl', 'Facebook', full.facebookUrl, 'https://facebook.com/…')}
+          ${socialField('tiktokUrl', 'TikTok', full.tiktokUrl, 'https://tiktok.com/@…')}
+          ${socialField('youtubeUrl', 'YouTube', full.youtubeUrl, 'https://youtube.com/@…')}
+          ${socialField('xUrl', 'X (Twitter)', full.xUrl, 'https://x.com/…')}
+        </div>
+        <button type="submit" class="btn btn-primary">Save profile</button>
       </form>
     </section>
     <section class="panel">
@@ -588,8 +655,78 @@ function accountView(user) {
             </form>`
           : `<p class="muted">Password management is available once the portal is connected to Supabase.</p>`
       }
+      <div class="panel-head" style="margin-top:1.5rem"><h2>Workspace</h2></div>
+      <p class="muted">${esc(roleLabel)}${full.cohort ? ` · ${esc(full.cohort)}` : ''}${full.title ? ` · ${esc(full.title)}` : ''}</p>
     </section>
   </div>`;
+}
+
+/** Public classmate profile (from Discussion hub). Email hidden from classmates. */
+function publicProfileView(viewer) {
+  const id = route.params?.id || '';
+  const p = store.getUserById(id);
+  if (!p) {
+    return `
+    <button type="button" class="back-link" data-action="go" data-route="discussion">← Discussion</button>
+    <section class="panel"><div class="empty">
+      <div class="empty-ico">👤</div>
+      <h3>Profile not found</h3>
+      <p class="muted">This classmate may no longer be in the portal.</p>
+    </div></section>`;
+  }
+  const isSelf = viewer.id === p.id;
+  const isAdmin = viewer.role === 'admin';
+  const roleLabel = p.role === 'admin' ? 'Instructor' : 'Student';
+  const links = [
+    ['Website', p.websiteUrl],
+    ['LinkedIn', p.linkedinUrl],
+    ['Instagram', p.instagramUrl],
+    ['Facebook', p.facebookUrl],
+    ['TikTok', p.tiktokUrl],
+    ['YouTube', p.youtubeUrl],
+    ['X', p.xUrl],
+  ].filter(([, url]) => url);
+
+  return `
+  <button type="button" class="back-link" data-action="go" data-route="discussion">← Discussion hub</button>
+  <section class="panel profile-public">
+    <div class="profile-public-head">
+      ${avatar(p, 96)}
+      <div>
+        <h1>${esc(displayNameWithCfwf(p.name))}${isSelf ? ' <span class="muted">(you)</span>' : ''}</h1>
+        <p class="muted">
+          <span class="pill ${p.role === 'admin' ? 'pill-enrolled' : 'pill-todo'}">${esc(roleLabel)}</span>
+          ${p.cohort ? ` · ${esc(p.cohort)}` : ''}
+          ${p.title ? ` · ${esc(p.title)}` : ''}
+        </p>
+        ${isSelf ? `<button type="button" class="btn btn-outline btn-sm" data-action="go" data-route="account" style="margin-top:8px">Edit my profile</button>` : ''}
+      </div>
+    </div>
+    ${
+      p.bio
+        ? `<div class="profile-bio"><h2>About</h2><p>${esc(p.bio).replace(/\n/g, '<br />')}</p></div>`
+        : `<p class="muted profile-bio-empty">No bio yet.</p>`
+    }
+    <div class="profile-meta-grid">
+      ${p.phone ? `<div><span class="muted">Phone</span><div><a href="tel:${esc(p.phone)}">${esc(p.phone)}</a></div></div>` : ''}
+      ${isSelf || isAdmin ? `<div><span class="muted">Email</span><div><a href="mailto:${esc(p.email)}">${esc(p.email || '—')}</a></div></div>` : ''}
+    </div>
+    ${
+      links.length
+        ? `<div class="profile-socials">
+            <h2>Links</h2>
+            <ul class="profile-social-list">
+              ${links
+                .map(
+                  ([label, url]) =>
+                    `<li><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)} <span class="muted">↗</span></a></li>`
+                )
+                .join('')}
+            </ul>
+          </div>`
+        : `<p class="muted">No social links added.</p>`
+    }
+  </section>`;
 }
 
 /* ===========================================================================
@@ -1211,20 +1348,31 @@ function discussionMessage(p, user, { isReply = false, week = null } = {}) {
   const mine = p.authorId === user.id;
   const isInstructor = p.authorRole === 'admin';
   const canDelete = mine || user.role === 'admin';
-  const author = { id: p.authorId || 'anon', name: p.authorName || 'Student' };
+  const author = store.getUserById(p.authorId) || {
+    id: p.authorId || 'anon',
+    name: p.authorName || 'Student',
+    role: p.authorRole,
+  };
   // Reply always targets the thread root (one-level threads).
   const replyTargetId = isReply ? (p.parentId || p.id) : p.id;
   const wk = week != null ? week : p.week;
+  const sz = isReply ? 32 : 40;
+  const avHtml = p.authorId
+    ? `<button type="button" class="profile-link profile-link-avatar" data-action="view-profile" data-id="${esc(p.authorId)}" title="View profile" aria-label="View profile of ${esc(p.authorName || 'Student')}">${avatar(author, sz)}</button>`
+    : avatar(author, sz);
+  const nameHtml = p.authorId
+    ? `<button type="button" class="disc-author-btn" data-action="view-profile" data-id="${esc(p.authorId)}" title="View profile"><strong>${esc(p.authorName || 'Student')}${mine ? ' (you)' : ''}</strong></button>`
+    : `<strong>${esc(p.authorName || 'Student')}${mine ? ' (you)' : ''}</strong>`;
   return `<div class="disc-msg${mine ? ' is-mine' : ''}${isInstructor ? ' is-instructor' : ''}${isReply ? ' is-reply' : ''}" data-post-id="${esc(p.id)}">
-    ${avatar(author, isReply ? 32 : 40)}
+    ${avHtml}
     <div class="disc-bubble">
       <div class="disc-meta">
-        <strong>${esc(p.authorName || 'Student')}${mine ? ' (you)' : ''}</strong>
+        ${nameHtml}
         ${isInstructor ? `<span class="disc-tag">Instructor</span>` : ''}
         <span class="disc-time">${esc(fmtWhen(p.createdAt))}</span>
         <span class="disc-actions">
           <button type="button" class="disc-reply-btn" data-action="reply-post" data-id="${esc(replyTargetId)}" data-week="${wk != null ? esc(String(wk)) : ''}" data-name="${esc(p.authorName || 'Student')}" title="Reply" aria-label="Reply to ${esc(p.authorName || 'Student')}">Reply</button>
-          ${canDelete ? `<button type="button" class="disc-del" data-action="delete-post" data-id="${esc(p.id)}" title="Delete message" aria-label="Delete message">🗑</button>` : ''}
+          ${canDelete ? `<button type="button" class="disc-del" data-action="delete-post" data-id="${esc(p.id)}" title="Delete message — cannot be undone" aria-label="Delete message">🗑</button>` : ''}
         </span>
       </div>
       <p class="disc-body">${esc(p.body).replace(/\n/g, '<br />')}</p>
@@ -1457,7 +1605,7 @@ function studentNav(user) {
     },
     { route: 'student-tests', label: 'My Tests', icon: '✓' },
     { route: 'discussion', label: 'Discussion', icon: '💬' },
-    { route: 'account', label: 'Account', icon: '⚙' },
+    { route: 'account', label: 'My Profile', icon: '👤' },
   ];
 }
 
@@ -1478,7 +1626,8 @@ function studentHome(user) {
       helpSteps: [
         'Open <strong>Curriculum</strong> for this week’s objectives, assignment, and discussion prompt.',
         'Open <strong>My Tests</strong> to complete work your instructor has published.',
-        'Use <strong>Discussion</strong> to post answers and reply to classmates.',
+        'Use <strong>Discussion</strong> to post answers and reply to classmates — click a name or photo to open their profile.',
+        'Complete <strong>My Profile</strong> with a photo, bio, and links so classmates can find you.',
         'Questions or document uploads? Email <a href="mailto:admin@umof.org">admin@umof.org</a>.',
       ],
     }
@@ -2084,7 +2233,7 @@ function adminNav() {
         { route: 'admin-access', label: 'Access', icon: '🔑' },
       ],
     },
-    { route: 'account', label: 'Account', icon: '⚙' },
+    { route: 'account', label: 'My Profile', icon: '👤' },
   ];
 }
 
@@ -3490,7 +3639,7 @@ function render() {
   }
 
   if (user.role === 'student') {
-    const allowed = ['student-home', 'curriculum', 'student-sessions', 'student-tests', 'session', 'quiz', 'discussion', 'account'];
+    const allowed = ['student-home', 'curriculum', 'student-sessions', 'student-tests', 'session', 'quiz', 'discussion', 'account', 'profile'];
     if (!allowed.includes(route.name)) route = { name: 'student-home', params: {} };
     // Class Sessions greyed out — bounce deep links to dashboard lock note
     if (SESSIONS_LOCKED && (route.name === 'student-sessions' || route.name === 'session')) {
@@ -3505,11 +3654,12 @@ function render() {
       quiz: quizView,
       discussion: discussionView,
       account: accountView,
+      profile: () => publicProfileView(user),
     };
     const content = (views[route.name] || studentHome)(user);
     app.innerHTML = shell(user, studentNav(user), content);
   } else {
-    const allowed = ['admin-home', 'admin-students', 'admin-student', 'admin-grading', 'grade', 'admin-crm', 'admin-content', 'admin-tests', 'curriculum', 'discussion', 'admin-access', 'account'];
+    const allowed = ['admin-home', 'admin-students', 'admin-student', 'admin-grading', 'grade', 'admin-crm', 'admin-content', 'admin-tests', 'curriculum', 'discussion', 'admin-access', 'account', 'profile'];
     if (!allowed.includes(route.name)) route = { name: 'admin-home', params: {} };
     const views = {
       'admin-home': adminHome,
@@ -3524,6 +3674,7 @@ function render() {
       discussion: () => discussionView(user),
       'admin-access': adminAccess,
       account: () => accountView(user),
+      profile: () => publicProfileView(user),
     };
     const content = (views[route.name] || adminHome)();
     app.innerHTML = shell(user, adminNav(), content);
@@ -3817,6 +3968,35 @@ app.addEventListener('click', async (e) => {
       render();
       break;
     }
+    case 'view-profile': {
+      const id = d.id || '';
+      if (!id) break;
+      go('profile', { id });
+      break;
+    }
+    case 'avatar-remove': {
+      const user = currentUser();
+      if (!user) break;
+      if (
+        !adminConfirmDanger({
+          title: 'Remove profile photo?',
+          will: ['Delete your profile photo from the class hub.'],
+          note: ['This cannot be undone — you will need to upload a new photo later.'],
+          severity: 'irreversible',
+        })
+      ) {
+        break;
+      }
+      const res = await store.removeAvatar(user.id);
+      if (res.ok) {
+        mergeCachedUser({ avatarUrl: '', avatarPath: '' });
+        toast('Photo removed');
+        render();
+      } else {
+        toast(res.error || 'Could not remove photo');
+      }
+      break;
+    }
     case 'delete-post': {
       const user = currentUser();
       const post = store.getDiscussion().find((p) => p.id === d.id);
@@ -3825,14 +4005,14 @@ app.addEventListener('click', async (e) => {
       const who = mine ? 'your message' : `${post.authorName || 'this student'}’s message`;
       if (
         !adminConfirmDanger({
-          title: `Delete discussion ${mine ? 'post' : 'post (moderation)'}?`,
+          title: `Delete discussion post?`,
           will: [
-            `Remove ${who} from the live discussion board.`,
+            `Permanently remove ${who} from the live discussion board.`,
             'Classmates will no longer see that text.',
           ],
           note: [
-            'If the failsafe archive is installed on Supabase, a backup copy may still exist for admins.',
-            'Students cannot restore the post themselves.',
+            '⚠ This cannot be undone by students.',
+            'If a failsafe archive is installed, admins may still have a backup.',
           ],
           severity: 'irreversible',
         })
@@ -4778,10 +4958,33 @@ app.addEventListener('submit', async (e) => {
     return;
   }
 
-  if (form.id === 'nameForm') {
-    const res = await updateDisplayName(displayNameWithCfwf(form.name.value));
-    toast(res.ok ? 'Name updated ✓' : res.error || 'Could not update name');
-    if (res.ok) render();
+  if (form.id === 'nameForm' || form.id === 'profileForm') {
+    const user = currentUser();
+    if (!user) return;
+    const fields = {
+      name: displayNameWithCfwf(form.name?.value || ''),
+      phone: form.phone?.value || '',
+      bio: form.bio?.value || '',
+      websiteUrl: form.websiteUrl?.value || '',
+      linkedinUrl: form.linkedinUrl?.value || '',
+      instagramUrl: form.instagramUrl?.value || '',
+      facebookUrl: form.facebookUrl?.value || '',
+      tiktokUrl: form.tiktokUrl?.value || '',
+      youtubeUrl: form.youtubeUrl?.value || '',
+      xUrl: form.xUrl?.value || '',
+    };
+    const unbusy = setBusy(form, 'Saving…');
+    const res = await store.updateMyProfile(user.id, fields);
+    unbusy();
+    if (res.ok) {
+      mergeCachedUser(res.user || fields);
+      // Keep auth metadata name in sync when online
+      if (fields.name) await updateDisplayName(fields.name);
+      toast('Profile saved ✓');
+      render();
+    } else {
+      toast(res.error || 'Could not save profile');
+    }
     return;
   }
 
@@ -5212,6 +5415,37 @@ app.addEventListener('change', async (e) => {
     const res = await store.uploadMaterial(node.dataset.session, file, kind, file.name.replace(/\.[^.]+$/, ''));
     toast(res.ok ? 'Material uploaded ✓' : `Upload failed: ${res.error}`);
     render();
+  } else if (action === 'avatar-upload') {
+    const file = node.files && node.files[0];
+    if (!file) return;
+    const user = currentUser();
+    if (!user) return;
+    if (
+      !adminConfirmDanger({
+        title: 'Upload profile photo?',
+        will: [
+          'Set this image as your class profile photo.',
+          'Classmates will see it on Discussion and your public profile.',
+        ],
+        note: user.avatarUrl || user.avatarPath
+          ? ['Your current photo will be replaced.']
+          : ['You can remove or change this photo later from My Profile.'],
+        severity: 'hard',
+      })
+    ) {
+      node.value = '';
+      return;
+    }
+    toast('Uploading photo…');
+    const res = await store.uploadAvatar(user.id, file);
+    node.value = '';
+    if (res.ok) {
+      mergeCachedUser(res.user || { avatarUrl: res.avatarUrl });
+      toast('Photo updated ✓');
+      render();
+    } else {
+      toast(res.error || 'Upload failed');
+    }
   } else if (action === 'session-week') {
     store.updateSession(node.dataset.id, { week: node.value });
     toast('Session week updated ✓');

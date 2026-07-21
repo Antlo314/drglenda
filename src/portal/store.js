@@ -377,9 +377,20 @@ const mapMaterial = (r) => {
   };
 };
 const mapProfile = (r) => ({
-  id: r.id, role: r.role, name: r.name, email: r.email, phone: r.phone,
+  id: r.id, role: r.role, name: r.name, email: r.email, phone: r.phone || '',
   title: r.title, cohort: r.cohort, enrolled: r.enrolled, plan: r.plan,
   grantAwarded: !!r.grant_awarded, grantAmount: Number(r.grant_amount) || 0,
+  bio: r.bio || '',
+  websiteUrl: r.website_url || '',
+  linkedinUrl: r.linkedin_url || '',
+  instagramUrl: r.instagram_url || '',
+  facebookUrl: r.facebook_url || '',
+  tiktokUrl: r.tiktok_url || '',
+  youtubeUrl: r.youtube_url || '',
+  xUrl: r.x_url || '',
+  avatarPath: r.avatar_path || '',
+  avatarUrl: '', // filled with signed URL during hydrate
+  profileUpdatedAt: r.profile_updated_at || null,
 });
 // A class-discussion post. `author_name`/`author_role` are denormalized on the
 // row (set server-side) so every classmate can see who wrote it â€” students can't
@@ -609,10 +620,26 @@ export async function hydrate(user) {
   next.discussion = (posts || []).map(mapPost);
 
   // people: admin sees everyone, a student sees just themselves
-  const { data: profiles } = isAdmin
-    ? await supabase.from('profiles').select('*')
-    : await supabase.from('profiles').select('*').eq('id', user.id);
+  // Class hub: every authenticated user can read classmate profiles (RLS).
+  const { data: profiles } = await supabase.from('profiles').select('*');
   next.users = (profiles || []).map(mapProfile);
+  // Sign avatar URLs for the class hub
+  const withAvatar = next.users.filter((u) => u.avatarPath);
+  if (withAvatar.length) {
+    try {
+      const { data: signedA } = await supabase.storage
+        .from('avatars')
+        .createSignedUrls(withAvatar.map((u) => u.avatarPath), 7200);
+      const byPath = new Map((signedA || []).map((s) => [s.path, s.signedUrl]));
+      next.users = next.users.map((u) =>
+        u.avatarPath && byPath.get(u.avatarPath)
+          ? { ...u, avatarUrl: byPath.get(u.avatarPath) }
+          : u
+      );
+    } catch {
+      /* bucket may not exist yet */
+    }
+  }
   // make sure the signed-in user is present even before their profile row syncs
   if (!next.users.some((u) => u.id === user.id)) next.users.push(user);
 
@@ -1123,6 +1150,22 @@ export async function refreshProgress() {
   }
 
   next.users = (profRes.data || []).map(mapProfile);
+  const withAv = next.users.filter((u) => u.avatarPath);
+  if (withAv.length) {
+    try {
+      const { data: signedA } = await supabase.storage
+        .from('avatars')
+        .createSignedUrls(withAv.map((u) => u.avatarPath), 7200);
+      const byPath = new Map((signedA || []).map((s) => [s.path, s.signedUrl]));
+      next.users = next.users.map((u) =>
+        u.avatarPath && byPath.get(u.avatarPath)
+          ? { ...u, avatarUrl: byPath.get(u.avatarPath) }
+          : u
+      );
+    } catch {
+      /* */
+    }
+  }
   next.progress = {};
   const ensure = (pid) => (next.progress[pid] ??= { completed: [], submissions: {} });
   (compRes.data || []).forEach((c) => ensure(c.profile_id).completed.push(c.session_id));
@@ -1136,6 +1179,175 @@ export async function refreshProgress() {
     count: (subRes.data || []).length,
     pending: getGradingQueue().length,
   };
+}
+
+/* ===========================================================================
+   PROFILE HUB — editable bio/socials/avatar (class discussion discovery)
+   ======================================================================== */
+
+function normalizeHttpUrl(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  if (!/^https?:\/\//i.test(s)) return '';
+  return s.slice(0, 500);
+}
+
+/**
+ * Save profile fields for the signed-in user (name, phone, bio, socials).
+ * Does not change role/email. Role still protected by DB trigger.
+ */
+export async function updateMyProfile(userId, fields = {}) {
+  if (!userId) return { ok: false, error: 'Not signed in.' };
+  const name = String(fields.name || '').trim();
+  if (!name) return { ok: false, error: 'Enter a display name.' };
+  const bio = String(fields.bio || '').trim().slice(0, 2000);
+  const phone = String(fields.phone || '').trim().slice(0, 40);
+  const patch = {
+    name,
+    phone,
+    bio,
+    website_url: normalizeHttpUrl(fields.websiteUrl),
+    linkedin_url: normalizeHttpUrl(fields.linkedinUrl),
+    instagram_url: normalizeHttpUrl(fields.instagramUrl),
+    facebook_url: normalizeHttpUrl(fields.facebookUrl),
+    tiktok_url: normalizeHttpUrl(fields.tiktokUrl),
+    youtube_url: normalizeHttpUrl(fields.youtubeUrl),
+    x_url: normalizeHttpUrl(fields.xUrl),
+  };
+  // Reject invalid URLs that user tried to fill
+  const urlFields = [
+    ['websiteUrl', 'Website'],
+    ['linkedinUrl', 'LinkedIn'],
+    ['instagramUrl', 'Instagram'],
+    ['facebookUrl', 'Facebook'],
+    ['tiktokUrl', 'TikTok'],
+    ['youtubeUrl', 'YouTube'],
+    ['xUrl', 'X / Twitter'],
+  ];
+  for (const [key, label] of urlFields) {
+    const raw = String(fields[key] || '').trim();
+    if (raw && !normalizeHttpUrl(raw)) {
+      return { ok: false, error: `${label} must start with http:// or https://` };
+    }
+  }
+
+  const next = structuredClone(state);
+  const u = next.users.find((x) => x.id === userId);
+  if (u) {
+    Object.assign(u, {
+      name: patch.name,
+      phone: patch.phone,
+      bio: patch.bio,
+      websiteUrl: patch.website_url,
+      linkedinUrl: patch.linkedin_url,
+      instagramUrl: patch.instagram_url,
+      facebookUrl: patch.facebook_url,
+      tiktokUrl: patch.tiktok_url,
+      youtubeUrl: patch.youtube_url,
+      xUrl: patch.x_url,
+    });
+  }
+  set(next);
+
+  if (!USE_SUPABASE || !supabase) return { ok: true, user: getUserById(userId) };
+
+  const { error } = await supabase.from('profiles').update(patch).eq('id', userId);
+  if (error) {
+    reportError(error);
+    return { ok: false, error: error.message || 'Could not save profile.' };
+  }
+  return { ok: true, user: getUserById(userId) };
+}
+
+/** Upload or replace profile photo. Path: {userId}/avatar.{ext} */
+export async function uploadAvatar(userId, file) {
+  if (!userId || !file) return { ok: false, error: 'Choose an image file.' };
+  if (!USE_SUPABASE || !supabase) {
+    // Demo: object URL only for this session
+    const url = URL.createObjectURL(file);
+    const next = structuredClone(state);
+    const u = next.users.find((x) => x.id === userId);
+    if (u) {
+      u.avatarUrl = url;
+      u.avatarPath = `local/${userId}/avatar`;
+    }
+    set(next);
+    return { ok: true, avatarUrl: url, user: getUserById(userId) };
+  }
+  const okType = /image\/(jpeg|png|webp|gif)/i.test(file.type || '');
+  if (!okType) return { ok: false, error: 'Use a JPG, PNG, WebP, or GIF image.' };
+  if (file.size > 5 * 1024 * 1024) return { ok: false, error: 'Image must be 5 MB or smaller.' };
+
+  const ext =
+    (file.name && file.name.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '')) ||
+    (file.type.includes('png') ? 'png' : file.type.includes('webp') ? 'webp' : file.type.includes('gif') ? 'gif' : 'jpg');
+  const path = `${userId}/avatar.${ext}`;
+
+  const up = await supabase.storage
+    .from('avatars')
+    .upload(path, file, { upsert: true, contentType: file.type || 'image/jpeg' });
+  if (up.error) {
+    reportError(up.error);
+    return {
+      ok: false,
+      error: up.error.message || 'Upload failed. Is the avatars bucket set up?',
+    };
+  }
+
+  const { error: pe } = await supabase
+    .from('profiles')
+    .update({ avatar_path: path })
+    .eq('id', userId);
+  if (pe) {
+    reportError(pe);
+    return { ok: false, error: pe.message || 'Could not save avatar path.' };
+  }
+
+  const { data: signed } = await supabase.storage.from('avatars').createSignedUrl(path, 7200);
+  const avatarUrl = signed?.signedUrl || '';
+  const next = structuredClone(state);
+  const u = next.users.find((x) => x.id === userId);
+  if (u) {
+    u.avatarPath = path;
+    u.avatarUrl = avatarUrl;
+  }
+  set(next);
+  return { ok: true, avatarUrl, user: getUserById(userId) };
+}
+
+/** Remove profile photo from storage + profile row. */
+export async function removeAvatar(userId) {
+  if (!userId) return { ok: false, error: 'Not signed in.' };
+  const existing = getUserById(userId);
+  const path = existing?.avatarPath;
+
+  if (!USE_SUPABASE || !supabase) {
+    const next = structuredClone(state);
+    const u = next.users.find((x) => x.id === userId);
+    if (u) {
+      u.avatarPath = '';
+      u.avatarUrl = '';
+    }
+    set(next);
+    return { ok: true };
+  }
+
+  if (path && !path.startsWith('local/')) {
+    await supabase.storage.from('avatars').remove([path]);
+  }
+  const { error } = await supabase.from('profiles').update({ avatar_path: '' }).eq('id', userId);
+  if (error) {
+    reportError(error);
+    return { ok: false, error: error.message || 'Could not remove photo.' };
+  }
+  const next = structuredClone(state);
+  const u = next.users.find((x) => x.id === userId);
+  if (u) {
+    u.avatarPath = '';
+    u.avatarUrl = '';
+  }
+  set(next);
+  return { ok: true };
 }
 
 /* ===========================================================================
