@@ -1185,11 +1185,112 @@ export async function refreshProgress() {
    PROFILE HUB — editable bio/socials/avatar (class discussion discovery)
    ======================================================================== */
 
-function normalizeHttpUrl(raw) {
-  const s = String(raw || '').trim();
+/**
+ * Build a full https URL from a simple handle, domain, or full URL.
+ * Users can type @name, name, domain.com, or paste a full link.
+ * @param {'website'|'linkedin'|'instagram'|'facebook'|'tiktok'|'youtube'|'x'} kind
+ */
+export function normalizeSocialLink(kind, raw) {
+  let s = String(raw || '').trim();
   if (!s) return '';
-  if (!/^https?:\/\//i.test(s)) return '';
-  return s.slice(0, 500);
+  s = s.replace(/\s+/g, '');
+  // already a full URL
+  if (/^https?:\/\//i.test(s)) return s.slice(0, 500);
+  // protocol-relative or bare domain with known host
+  if (/^\/\//.test(s)) return `https:${s}`.slice(0, 500);
+  if (/^(www\.)?[\w.-]+\.[a-z]{2,}/i.test(s) && /[./]/.test(s)) {
+    return `https://${s.replace(/^\/+/, '')}`.slice(0, 500);
+  }
+
+  // strip leading @ for social handles
+  const handle = s.replace(/^@+/, '').replace(/^\/+/, '');
+  if (!handle) return '';
+
+  switch (kind) {
+    case 'linkedin': {
+      // accept "in/username", "company/foo", or bare username
+      if (/^(in|company|school)\//i.test(handle)) {
+        return `https://www.linkedin.com/${handle}`.slice(0, 500);
+      }
+      return `https://www.linkedin.com/in/${handle}`.slice(0, 500);
+    }
+    case 'instagram':
+      return `https://www.instagram.com/${handle}`.slice(0, 500);
+    case 'facebook':
+      return `https://www.facebook.com/${handle}`.slice(0, 500);
+    case 'tiktok':
+      return `https://www.tiktok.com/@${handle}`.slice(0, 500);
+    case 'youtube': {
+      // channel IDs often start with UC
+      if (/^UC[\w-]{10,}$/i.test(handle)) {
+        return `https://www.youtube.com/channel/${handle}`.slice(0, 500);
+      }
+      return `https://www.youtube.com/@${handle}`.slice(0, 500);
+    }
+    case 'x':
+      return `https://x.com/${handle}`.slice(0, 500);
+    case 'website':
+    default: {
+      // bare word without a dot isn't a useful website
+      if (!handle.includes('.')) return '';
+      return `https://${handle}`.slice(0, 500);
+    }
+  }
+}
+
+/**
+ * Short value for form inputs (handle / domain), not the full stored URL.
+ * @param {'website'|'linkedin'|'instagram'|'facebook'|'tiktok'|'youtube'|'x'} kind
+ */
+export function socialInputDisplay(kind, storedUrl) {
+  const s = String(storedUrl || '').trim();
+  if (!s) return '';
+  try {
+    const u = new URL(/^https?:\/\//i.test(s) ? s : `https://${s}`);
+    const host = u.hostname.replace(/^www\./i, '').toLowerCase();
+    const path = u.pathname.replace(/\/+$/, '') || '';
+    const segs = path.split('/').filter(Boolean);
+
+    switch (kind) {
+      case 'instagram':
+        if (host.includes('instagram.com')) return segs[0] ? `@${segs[0]}` : s;
+        break;
+      case 'tiktok':
+        if (host.includes('tiktok.com')) {
+          const h = segs[0] || '';
+          return h.startsWith('@') ? h : h ? `@${h}` : s;
+        }
+        break;
+      case 'x':
+        if (host === 'x.com' || host === 'twitter.com') return segs[0] ? `@${segs[0]}` : s;
+        break;
+      case 'youtube':
+        if (host.includes('youtube.com') || host === 'youtu.be') {
+          if (segs[0] === 'channel' && segs[1]) return segs[1];
+          if (segs[0] === '@' || (segs[0] && segs[0].startsWith('@'))) return segs[0];
+          if (segs[0] && segs[0].startsWith('@')) return segs[0];
+          if (segs[0]) return segs[0].startsWith('@') ? segs[0] : `@${segs[0]}`;
+        }
+        break;
+      case 'linkedin':
+        if (host.includes('linkedin.com')) {
+          if (segs[0] === 'in' && segs[1]) return segs[1];
+          if (segs.length >= 2) return `${segs[0]}/${segs[1]}`;
+          return segs.join('/') || s;
+        }
+        break;
+      case 'facebook':
+        if (host.includes('facebook.com') || host.includes('fb.com')) return segs[0] || s;
+        break;
+      case 'website':
+        return host + (path && path !== '/' ? path : '');
+      default:
+        break;
+    }
+  } catch {
+    /* fall through */
+  }
+  return s.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
 }
 
 /**
@@ -1202,34 +1303,48 @@ export async function updateMyProfile(userId, fields = {}) {
   if (!name) return { ok: false, error: 'Enter a display name.' };
   const bio = String(fields.bio || '').trim().slice(0, 2000);
   const phone = String(fields.phone || '').trim().slice(0, 40);
+
+  const socialKinds = [
+    ['websiteUrl', 'website', 'Website'],
+    ['linkedinUrl', 'linkedin', 'LinkedIn'],
+    ['instagramUrl', 'instagram', 'Instagram'],
+    ['facebookUrl', 'facebook', 'Facebook'],
+    ['tiktokUrl', 'tiktok', 'TikTok'],
+    ['youtubeUrl', 'youtube', 'YouTube'],
+    ['xUrl', 'x', 'X / Twitter'],
+  ];
+  const normalized = {};
+  for (const [fieldKey, kind, label] of socialKinds) {
+    const raw = String(fields[fieldKey] || '').trim();
+    if (!raw) {
+      normalized[fieldKey] = '';
+      continue;
+    }
+    const url = normalizeSocialLink(kind, raw);
+    if (!url) {
+      return {
+        ok: false,
+        error:
+          kind === 'website'
+            ? `${label}: enter a domain like yoursite.com (or paste a full link).`
+            : `${label}: enter a username/handle (e.g. yourname) or paste a link.`,
+      };
+    }
+    normalized[fieldKey] = url;
+  }
+
   const patch = {
     name,
     phone,
     bio,
-    website_url: normalizeHttpUrl(fields.websiteUrl),
-    linkedin_url: normalizeHttpUrl(fields.linkedinUrl),
-    instagram_url: normalizeHttpUrl(fields.instagramUrl),
-    facebook_url: normalizeHttpUrl(fields.facebookUrl),
-    tiktok_url: normalizeHttpUrl(fields.tiktokUrl),
-    youtube_url: normalizeHttpUrl(fields.youtubeUrl),
-    x_url: normalizeHttpUrl(fields.xUrl),
+    website_url: normalized.websiteUrl,
+    linkedin_url: normalized.linkedinUrl,
+    instagram_url: normalized.instagramUrl,
+    facebook_url: normalized.facebookUrl,
+    tiktok_url: normalized.tiktokUrl,
+    youtube_url: normalized.youtubeUrl,
+    x_url: normalized.xUrl,
   };
-  // Reject invalid URLs that user tried to fill
-  const urlFields = [
-    ['websiteUrl', 'Website'],
-    ['linkedinUrl', 'LinkedIn'],
-    ['instagramUrl', 'Instagram'],
-    ['facebookUrl', 'Facebook'],
-    ['tiktokUrl', 'TikTok'],
-    ['youtubeUrl', 'YouTube'],
-    ['xUrl', 'X / Twitter'],
-  ];
-  for (const [key, label] of urlFields) {
-    const raw = String(fields[key] || '').trim();
-    if (raw && !normalizeHttpUrl(raw)) {
-      return { ok: false, error: `${label} must start with http:// or https://` };
-    }
-  }
 
   const next = structuredClone(state);
   const u = next.users.find((x) => x.id === userId);

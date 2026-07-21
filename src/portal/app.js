@@ -570,10 +570,11 @@ function renderAuthScreen() {
 /* ===========================================================================
    ACCOUNT / PROFILE HUB — editable profile, photo, socials + password
    ======================================================================== */
-function socialField(name, label, value, placeholder) {
+function socialField(name, label, value, placeholder, hint = '') {
   return `<label class="field"><span>${esc(label)}</span>
-    <input type="url" name="${esc(name)}" value="${esc(value || '')}"
-      placeholder="${esc(placeholder || 'https://…')}" autocomplete="url" />
+    <input type="text" name="${esc(name)}" value="${esc(value || '')}"
+      placeholder="${esc(placeholder)}" autocomplete="off" spellcheck="false" />
+    ${hint ? `<span class="field-hint">${esc(hint)}</span>` : ''}
   </label>`;
 }
 
@@ -620,15 +621,15 @@ function accountView(user) {
         <label class="field"><span>Bio</span>
           <textarea name="bio" rows="4" maxlength="2000" placeholder="Tell classmates about yourself…">${esc(full.bio || '')}</textarea>
         </label>
-        <p class="auth-hint">Bio max 2,000 characters. Social links must start with https://</p>
+        <p class="auth-hint">Bio max 2,000 characters. For socials, just enter your <strong>username</strong> (e.g. janedoe) — we build the full link. Full URLs still work if you paste them.</p>
         <div class="profile-socials-form">
-          ${socialField('websiteUrl', 'Website', full.websiteUrl, 'https://yoursite.com')}
-          ${socialField('linkedinUrl', 'LinkedIn', full.linkedinUrl, 'https://linkedin.com/in/…')}
-          ${socialField('instagramUrl', 'Instagram', full.instagramUrl, 'https://instagram.com/…')}
-          ${socialField('facebookUrl', 'Facebook', full.facebookUrl, 'https://facebook.com/…')}
-          ${socialField('tiktokUrl', 'TikTok', full.tiktokUrl, 'https://tiktok.com/@…')}
-          ${socialField('youtubeUrl', 'YouTube', full.youtubeUrl, 'https://youtube.com/@…')}
-          ${socialField('xUrl', 'X (Twitter)', full.xUrl, 'https://x.com/…')}
+          ${socialField('websiteUrl', 'Website', store.socialInputDisplay('website', full.websiteUrl), 'yoursite.com', 'Domain only is fine')}
+          ${socialField('linkedinUrl', 'LinkedIn', store.socialInputDisplay('linkedin', full.linkedinUrl), 'your-name', 'Username or paste link')}
+          ${socialField('instagramUrl', 'Instagram', store.socialInputDisplay('instagram', full.instagramUrl), '@yourname', 'Handle without the full address')}
+          ${socialField('facebookUrl', 'Facebook', store.socialInputDisplay('facebook', full.facebookUrl), 'your.page', 'Page or profile name')}
+          ${socialField('tiktokUrl', 'TikTok', store.socialInputDisplay('tiktok', full.tiktokUrl), '@yourname', 'Handle only')}
+          ${socialField('youtubeUrl', 'YouTube', store.socialInputDisplay('youtube', full.youtubeUrl), '@yourchannel', 'Handle or channel')}
+          ${socialField('xUrl', 'X (Twitter)', store.socialInputDisplay('x', full.xUrl), '@yourname', 'Handle only')}
         </div>
         <button type="submit" class="btn btn-primary">Save profile</button>
       </form>
