@@ -56,7 +56,7 @@ function defaultCurriculum() {
 function emptyState() {
   return {
     users: [], sessions: [], quizzes: [], progress: {}, leads: [],
-    allowedStudents: [], materials: [], discussion: [], curriculum: null,
+    allowedStudents: [], materials: [], discussion: [], messages: [], curriculum: null,
   };
 }
 function loadLocal() {
@@ -80,6 +80,11 @@ function loadLocal() {
         parsed.sessions = parsed.sessions.map((s) =>
           s.published === undefined ? { ...s, published: true } : s
         );
+        dirty = true;
+      }
+      // Migration: classmate direct messages
+      if (!Array.isArray(parsed.messages)) {
+        parsed.messages = [];
         dirty = true;
       }
       // Migration: publish Week 2 syllabus content when still an empty placeholder
@@ -402,6 +407,15 @@ const mapPost = (r) => ({
   parentId: r.parent_id || null,
   week: r.week != null && r.week !== '' ? Number(r.week) : null,
 });
+/** One 1:1 direct message between classmates. */
+const mapDm = (r) => ({
+  id: r.id,
+  senderId: r.sender_id,
+  recipientId: r.recipient_id,
+  body: r.body || '',
+  createdAt: r.created_at,
+  readAt: r.read_at || null,
+});
 const mapSubmission = (r) => ({
   type: r.type, status: r.status, score: r.score, total: r.total,
   correct: r.correct, answer: r.answer, answers: r.answers,
@@ -619,8 +633,20 @@ export async function hydrate(user) {
     .order('created_at', { ascending: true });
   next.discussion = (posts || []).map(mapPost);
 
-  // people: admin sees everyone, a student sees just themselves
-  // Class hub: every authenticated user can read classmate profiles (RLS).
+  // direct messages — RLS limits to rows I sent or received
+  const { data: dms, error: dmErr } = await supabase
+    .from('direct_messages')
+    .select('*')
+    .order('created_at', { ascending: true });
+  if (dmErr) {
+    // Table may not exist yet until direct-messages.sql is applied
+    if (!isSchemaMissingError(dmErr)) reportError(dmErr, { quiet: true });
+    next.messages = [];
+  } else {
+    next.messages = (dms || []).map(mapDm);
+  }
+
+  // people: Class hub — every authenticated user can read classmate profiles (RLS).
   const { data: profiles } = await supabase.from('profiles').select('*');
   next.users = (profiles || []).map(mapProfile);
   // Sign avatar URLs for the class hub
@@ -2964,5 +2990,191 @@ export function stopDiscussionRealtime() {
   if (discussionChannel) {
     supabase.removeChannel(discussionChannel);
     discussionChannel = null;
+  }
+}
+
+/* ===========================================================================
+   DIRECT MESSAGES — private 1:1 chat between classmates
+   ======================================================================== */
+export const getMessages = () => state.messages || [];
+
+/**
+ * Class roster for the profile hub directory.
+ * Instructors first, then students A–Z by name.
+ */
+export function getClassmates(viewerId = null) {
+  const list = [...(state.users || [])];
+  list.sort((a, b) => {
+    const ar = a.role === 'admin' ? 0 : 1;
+    const br = b.role === 'admin' ? 0 : 1;
+    if (ar !== br) return ar - br;
+    return String(a.name || '').localeCompare(String(b.name || ''), undefined, {
+      sensitivity: 'base',
+    });
+  });
+  if (viewerId) {
+    // Keep viewer in the list (marked as "you" in UI) but don't reorder specially
+  }
+  return list;
+}
+
+/** Thread between two users, oldest first. */
+export function getConversation(userId, peerId) {
+  if (!userId || !peerId) return [];
+  return (state.messages || [])
+    .filter(
+      (m) =>
+        (m.senderId === userId && m.recipientId === peerId) ||
+        (m.senderId === peerId && m.recipientId === userId)
+    )
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+}
+
+/** Unread count for messages I received (optionally from one peer). */
+export function getUnreadDmCount(userId, peerId = null) {
+  if (!userId) return 0;
+  return (state.messages || []).filter((m) => {
+    if (m.recipientId !== userId || m.readAt) return false;
+    if (peerId && m.senderId !== peerId) return false;
+    return true;
+  }).length;
+}
+
+/**
+ * Send a private message. Optimistic local insert; reconciles with DB in Supabase mode.
+ */
+export function sendDirectMessage(sender, recipientId, body) {
+  const text = String(body || '').trim();
+  if (!sender?.id) return { ok: false, error: 'Not signed in.' };
+  if (!recipientId || recipientId === sender.id) {
+    return { ok: false, error: 'Choose a classmate to message.' };
+  }
+  if (!text) return { ok: false, error: 'Write a message first.' };
+  if (text.length > 4000) return { ok: false, error: 'Message is too long (max 4,000 characters).' };
+
+  const peer = getUserById(recipientId);
+  if (!peer) return { ok: false, error: 'Classmate not found.' };
+
+  const tempId = `dm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const local = {
+    id: tempId,
+    senderId: sender.id,
+    recipientId,
+    body: text,
+    createdAt: new Date().toISOString(),
+    readAt: null,
+  };
+  const next = structuredClone(state);
+  (next.messages ??= []).push(local);
+  set(next);
+
+  if (!USE_SUPABASE || !supabase) return { ok: true, id: tempId };
+
+  Promise.resolve(
+    supabase
+      .from('direct_messages')
+      .insert({
+        sender_id: sender.id,
+        recipient_id: recipientId,
+        body: text,
+      })
+      .select()
+      .single()
+  )
+    .then(({ data, error }) => {
+      if (error || !data) {
+        const cur = structuredClone(state);
+        cur.messages = (cur.messages || []).filter((m) => m.id !== tempId);
+        set(cur);
+        reportError(error || new Error('DM insert failed'), {
+          quiet: isSchemaMissingError(error),
+        });
+        return;
+      }
+      const cur = structuredClone(state);
+      const row = (cur.messages || []).find((m) => m.id === tempId);
+      if (row) {
+        Object.assign(row, mapDm(data));
+      }
+      set(cur);
+    })
+    .catch((e) => {
+      const cur = structuredClone(state);
+      cur.messages = (cur.messages || []).filter((m) => m.id !== tempId);
+      set(cur);
+      reportError(e);
+    });
+
+  return { ok: true, id: tempId };
+}
+
+/** Mark all messages from peer → me as read. Returns true if any were updated. */
+export function markConversationRead(userId, peerId) {
+  if (!userId || !peerId) return false;
+  const unread = (state.messages || []).filter(
+    (m) => m.recipientId === userId && m.senderId === peerId && !m.readAt
+  );
+  if (!unread.length) return false;
+
+  const now = new Date().toISOString();
+  const next = structuredClone(state);
+  for (const m of next.messages || []) {
+    if (m.recipientId === userId && m.senderId === peerId && !m.readAt) {
+      m.readAt = now;
+    }
+  }
+  set(next);
+
+  if (!USE_SUPABASE || !supabase) return true;
+  const ids = unread
+    .map((m) => m.id)
+    .filter((id) => id && !String(id).startsWith('dm-'));
+  if (ids.length) {
+    push(() =>
+      supabase
+        .from('direct_messages')
+        .update({ read_at: now })
+        .in('id', ids)
+        .eq('recipient_id', userId)
+    );
+  }
+  return true;
+}
+
+let messagesChannel = null;
+
+export function startMessagesRealtime(user, onChange) {
+  if (!USE_SUPABASE || !user || messagesChannel) return;
+  messagesChannel = supabase
+    .channel('class-dms')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'direct_messages' },
+      async () => {
+        const { data, error } = await supabase
+          .from('direct_messages')
+          .select('*')
+          .order('created_at', { ascending: true });
+        if (error) {
+          if (!isSchemaMissingError(error)) reportError(error, { quiet: true });
+          return;
+        }
+        const fromServer = (data || []).map(mapDm);
+        const pending = (state.messages || []).filter(
+          (m) => typeof m.id === 'string' && m.id.startsWith('dm-')
+        );
+        const next = structuredClone(state);
+        next.messages = [...fromServer, ...pending];
+        set(next);
+        onChange?.();
+      }
+    )
+    .subscribe();
+}
+
+export function stopMessagesRealtime() {
+  if (messagesChannel) {
+    supabase.removeChannel(messagesChannel);
+    messagesChannel = null;
   }
 }

@@ -270,6 +270,14 @@ let disc = {
   postWeek: null,
 };
 
+// Profile hub: classmate directory search + DM composer draft (survive re-renders).
+let peopleDir = {
+  q: '',
+  dmDraft: '',
+  focusDm: false,
+  focusSearch: false,
+};
+
 // logged-out auth screens
 let authScreen = 'login'; // 'login' | 'signup' | 'forgot'
 let authError = '';
@@ -281,6 +289,13 @@ let recoveryMode = false; // user arrived via a password-reset link
 let portalLoadError = null; // hydrate failed after successful auth
 
 function go(name, params = {}) {
+  // Reset DM composer when switching classmates (or leaving a profile thread).
+  const prevPeer = route.name === 'profile' ? route.params?.id : null;
+  const nextPeer = name === 'profile' ? params?.id : null;
+  if (prevPeer !== nextPeer) {
+    peopleDir.dmDraft = '';
+    peopleDir.focusDm = false;
+  }
   route = { name, params };
   closeSideNav();
   render();
@@ -408,6 +423,7 @@ async function enterApp(user) {
     await store.hydrate(user);
     store.startRealtime(user, liveRerender);
     store.startDiscussionRealtime(user, liveRerender);
+    store.startMessagesRealtime(user, liveRerender);
     route = { name: user.role === 'admin' ? 'admin-home' : 'student-home', params: {} };
     portalLoadError = null;
     render();
@@ -578,13 +594,96 @@ function socialField(name, label, value, placeholder, hint = '') {
   </label>`;
 }
 
+/** Classmate directory side panel — open any profile without digging through Discussion. */
+function peopleDirectoryPanel(viewer, selectedId = '') {
+  const q = String(peopleDir.q || '').trim().toLowerCase();
+  const all = store.getClassmates(viewer.id);
+  const rows = all.filter((u) => {
+    if (!q) return true;
+    const hay = `${u.name || ''} ${u.email || ''} ${u.cohort || ''} ${u.title || ''} ${u.role || ''}`.toLowerCase();
+    return hay.includes(q);
+  });
+  const totalUnread = store.getUnreadDmCount(viewer.id);
+
+  const list = rows.length
+    ? rows
+        .map((u) => {
+          const isSelf = u.id === viewer.id;
+          const isSel = selectedId && u.id === selectedId;
+          const roleLabel = u.role === 'admin' ? 'Instructor' : 'Student';
+          const unread = isSelf ? 0 : store.getUnreadDmCount(viewer.id, u.id);
+          return `<button type="button" class="people-row${isSel ? ' active' : ''}${isSelf ? ' is-self' : ''}"
+            data-action="view-profile" data-id="${esc(u.id)}"
+            title="${isSelf ? 'Your public profile' : `Open ${esc(u.name || 'classmate')}`}"
+            aria-current="${isSel ? 'true' : 'false'}">
+            ${avatar(u, 40)}
+            <span class="people-row-text">
+              <strong>${esc(displayNameWithCfwf(u.name) || 'Student')}${isSelf ? ' <span class="muted">(you)</span>' : ''}</strong>
+              <small>${esc(roleLabel)}${u.cohort ? ` · ${esc(u.cohort)}` : ''}${u.title && u.role === 'admin' ? ` · ${esc(u.title)}` : ''}</small>
+            </span>
+            ${unread ? `<span class="people-unread" aria-label="${unread} unread">${unread > 9 ? '9+' : unread}</span>` : ''}
+          </button>`;
+        })
+        .join('')
+    : `<div class="people-empty muted">${q ? 'No classmates match your search.' : 'No classmates yet.'}</div>`;
+
+  return `
+  <aside class="panel people-dir" aria-label="Classmates">
+    <div class="panel-head people-dir-head">
+      <h2>Classmates</h2>
+      ${totalUnread ? `<span class="people-unread-total" title="Unread messages">${totalUnread > 99 ? '99+' : totalUnread}</span>` : ''}
+    </div>
+    <p class="people-dir-hint muted">Click a person to open their profile and message them — no need to find them in Discussion.</p>
+    <label class="people-search-wrap">
+      <span class="sr-only">Search classmates</span>
+      <input type="search" class="people-search" placeholder="Search name…"
+        value="${esc(peopleDir.q || '')}" data-action="people-search"
+        autocomplete="off" maxlength="80" />
+    </label>
+    <div class="people-list" role="list">${list}</div>
+  </aside>`;
+}
+
+/** Private 1:1 thread on a classmate’s public profile. */
+function dmThreadHtml(viewer, peer) {
+  if (!viewer || !peer || viewer.id === peer.id) return '';
+  const thread = store.getConversation(viewer.id, peer.id);
+  const msgs = thread.length
+    ? thread
+        .map((m) => {
+          const mine = m.senderId === viewer.id;
+          return `<div class="dm-msg${mine ? ' mine' : ''}">
+            <div class="dm-bubble">${esc(m.body).replace(/\n/g, '<br />')}</div>
+            <time class="dm-time" datetime="${esc(m.createdAt || '')}">${esc(fmtWhen(m.createdAt))}</time>
+          </div>`;
+        })
+        .join('')
+    : `<div class="dm-empty muted">No messages yet. Say hello — this stays between you and ${esc(peer.name || 'them')}.</div>`;
+
+  return `
+  <section class="panel dm-panel" aria-label="Direct messages with ${esc(peer.name || 'classmate')}">
+    <div class="panel-head">
+      <h2>Message ${esc(displayNameWithCfwf(peer.name) || 'classmate')}</h2>
+    </div>
+    <p class="muted dm-panel-hint">Private chat — only you two can see these messages.</p>
+    <div class="dm-thread" id="dmThread" role="log" aria-live="polite">${msgs}</div>
+    <form id="dmForm" class="dm-compose" data-peer="${esc(peer.id)}">
+      <label class="sr-only" for="dmInput">Message</label>
+      <textarea id="dmInput" name="body" rows="2" maxlength="4000"
+        placeholder="Write a private message…"
+        data-action="dm-input">${esc(peopleDir.dmDraft || '')}</textarea>
+      <button type="submit" class="btn btn-primary">Send</button>
+    </form>
+  </section>`;
+}
+
 function accountView(user) {
   const full = store.getUserById(user.id) || user;
   const roleLabel = full.role === 'admin' ? 'Instructor' : 'Student';
-  return `
+  const main = `
   <div class="page-head"><div>
     <h1>My Profile</h1>
-    <p class="muted">Your class hub profile — classmates can view this from Discussion.
+    <p class="muted">Your class hub profile — classmates can find you in the list and open your page.
       <span class="pill ${full.role === 'admin' ? 'pill-enrolled' : 'pill-todo'}" style="margin-left:8px">${esc(roleLabel)}</span>
     </p>
   </div>
@@ -660,20 +759,31 @@ function accountView(user) {
       <p class="muted">${esc(roleLabel)}${full.cohort ? ` · ${esc(full.cohort)}` : ''}${full.title ? ` · ${esc(full.title)}` : ''}</p>
     </section>
   </div>`;
+
+  return `
+  <div class="profile-hub">
+    <div class="profile-hub-main">${main}</div>
+    ${peopleDirectoryPanel(user, full.id)}
+  </div>`;
 }
 
-/** Public classmate profile (from Discussion hub). Email hidden from classmates. */
+/** Public classmate profile + optional private messages. Email hidden from classmates. */
 function publicProfileView(viewer) {
   const id = route.params?.id || '';
   const p = store.getUserById(id);
   if (!p) {
     return `
-    <button type="button" class="back-link" data-action="go" data-route="discussion">← Discussion</button>
-    <section class="panel"><div class="empty">
-      <div class="empty-ico">👤</div>
-      <h3>Profile not found</h3>
-      <p class="muted">This classmate may no longer be in the portal.</p>
-    </div></section>`;
+    <div class="profile-hub">
+      <div class="profile-hub-main">
+        <button type="button" class="back-link" data-action="go" data-route="account">← My Profile</button>
+        <section class="panel"><div class="empty">
+          <div class="empty-ico">👤</div>
+          <h3>Profile not found</h3>
+          <p class="muted">This classmate may no longer be in the portal. Pick someone from the list.</p>
+        </div></section>
+      </div>
+      ${peopleDirectoryPanel(viewer, id)}
+    </div>`;
   }
   const isSelf = viewer.id === p.id;
   const isAdmin = viewer.role === 'admin';
@@ -688,8 +798,8 @@ function publicProfileView(viewer) {
     ['X', p.xUrl],
   ].filter(([, url]) => url);
 
-  return `
-  <button type="button" class="back-link" data-action="go" data-route="discussion">← Discussion hub</button>
+  const main = `
+  <button type="button" class="back-link" data-action="go" data-route="account">← Classmates &amp; My Profile</button>
   <section class="panel profile-public">
     <div class="profile-public-head">
       ${avatar(p, 96)}
@@ -727,7 +837,14 @@ function publicProfileView(viewer) {
           </div>`
         : `<p class="muted">No social links added.</p>`
     }
-  </section>`;
+  </section>
+  ${!isSelf ? dmThreadHtml(viewer, p) : ''}`;
+
+  return `
+  <div class="profile-hub">
+    <div class="profile-hub-main">${main}</div>
+    ${peopleDirectoryPanel(viewer, p.id)}
+  </div>`;
 }
 
 /* ===========================================================================
@@ -1628,6 +1745,7 @@ function studentHome(user) {
         'Open <strong>Curriculum</strong> for this week’s objectives, assignment, and discussion prompt.',
         'Open <strong>My Tests</strong> to complete work your instructor has published.',
         'Use <strong>Discussion</strong> to post answers and reply to classmates — click a name or photo to open their profile.',
+        'Or open <strong>My Profile</strong> and use the <strong>Classmates</strong> list to message anyone directly.',
         'Complete <strong>My Profile</strong> with a photo, bio, and links so classmates can find you.',
         'Questions or document uploads? Email <a href="mailto:admin@umof.org">admin@umof.org</a>.',
       ],
@@ -3615,6 +3733,7 @@ function render() {
   // Was the student mid-message when this re-render fired? (a live post arriving
   // shouldn't steal focus from the composer). Checked before we replace the DOM.
   const discWasFocused = !!document.activeElement?.matches?.('textarea[data-action="disc-input"]');
+  const dmWasFocused = !!document.activeElement?.matches?.('#dmInput, textarea[data-action="dm-input"]');
   const discFocusWeek =
     document.activeElement?.dataset?.week ||
     (disc.postWeek != null ? String(disc.postWeek) : null);
@@ -3719,6 +3838,49 @@ function render() {
     }
     disc.focusAfterRender = false;
   }
+
+  // Profile hub: classmate search focus + DM thread pin + mark peer thread read.
+  if (peopleDir.focusSearch) {
+    const searchEl = document.querySelector('.people-search');
+    if (searchEl) {
+      searchEl.focus();
+      const v = searchEl.value;
+      searchEl.value = '';
+      searchEl.value = v;
+    }
+    peopleDir.focusSearch = false;
+  }
+  const dmThread = document.getElementById('dmThread');
+  if (dmThread) dmThread.scrollTop = dmThread.scrollHeight;
+  const dmInput = document.getElementById('dmInput');
+  if (dmInput) {
+    if (peopleDir.dmDraft && dmInput.value !== peopleDir.dmDraft) {
+      dmInput.value = peopleDir.dmDraft;
+    }
+    dmInput.style.height = 'auto';
+    dmInput.style.height = `${Math.min(dmInput.scrollHeight, 120)}px`;
+    if (peopleDir.focusDm || dmWasFocused) {
+      dmInput.focus();
+      const v = dmInput.value;
+      dmInput.value = '';
+      dmInput.value = v;
+      peopleDir.focusDm = false;
+    }
+  }
+  if (route.name === 'profile' && currentUser() && route.params?.id && !render._markingRead) {
+    const peerId = route.params.id;
+    if (peerId !== currentUser().id) {
+      const changed = store.markConversationRead(currentUser().id, peerId);
+      if (changed) {
+        // One follow-up paint so unread badges clear without a render loop.
+        render._markingRead = true;
+        requestAnimationFrame(() => {
+          render._markingRead = false;
+          render();
+        });
+      }
+    }
+  }
 }
 
 /** Focus a named auth field after paint (failed login → password, etc.). */
@@ -3781,6 +3943,7 @@ app.addEventListener('click', async (e) => {
     case 'logout':
       store.stopRealtime();
       store.stopDiscussionRealtime();
+      store.stopMessagesRealtime();
       await logout();
       route = { name: null, params: {} };
       authScreen = 'login';
@@ -5007,6 +5170,23 @@ app.addEventListener('submit', async (e) => {
     return;
   }
 
+  if (form.id === 'dmForm') {
+    const user = currentUser();
+    const peerId = form.dataset.peer || '';
+    if (!user || !peerId) return;
+    const body = form.body?.value || peopleDir.dmDraft || '';
+    const res = store.sendDirectMessage(user, peerId, body);
+    if (!res.ok) {
+      toast(res.error || 'Could not send message');
+      return;
+    }
+    peopleDir.dmDraft = '';
+    peopleDir.focusDm = true;
+    toast('Message sent');
+    render();
+    return;
+  }
+
   if (form.id === 'quizForm') {
     const user = currentUser();
     const quiz = store.getQuizById(form.dataset.quiz);
@@ -5316,6 +5496,14 @@ app.addEventListener('input', (e) => {
     crm.q = e.target.value;
     render._refocusSearch = true;
     render();
+  } else if (hit.action === 'people-search') {
+    peopleDir.q = e.target.value;
+    peopleDir.focusSearch = true;
+    render();
+  } else if (hit.action === 'dm-input') {
+    peopleDir.dmDraft = e.target.value;
+    e.target.style.height = 'auto';
+    e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
   } else if (hit.action === 'auth-field') {
     const name = e.target.name;
     if (name === 'email') authForm.email = e.target.value;
@@ -5624,6 +5812,7 @@ onAuthEvent(async (event, session) => {
         await store.hydrate(user);
         store.startRealtime(user, liveRerender);
         store.startDiscussionRealtime(user, liveRerender);
+        store.startMessagesRealtime(user, liveRerender);
       } catch (err) {
         console.error('[portal] startup hydrate error:', err);
         portalLoadError =

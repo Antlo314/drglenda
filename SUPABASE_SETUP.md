@@ -91,7 +91,18 @@ Run once in **SQL Editor**:
    - Allowed MIME: `image/jpeg`, `image/png`, `image/webp`, `image/gif`
 3. Re-run the storage policy section at the bottom of `profiles-public-hub.sql` if the bucket was created after the first run.
 
-Students edit **My Profile** in the portal; classmates open profiles by clicking a name/avatar on **Discussion**.
+Students edit **My Profile** in the portal; classmates open profiles from the **Classmates** side panel on My Profile, or by clicking a name/avatar on **Discussion**.
+
+## Direct messages (classmate 1:1 chat)
+
+Run once in **SQL Editor** after the profile hub SQL:
+
+[`supabase/direct-messages.sql`](supabase/direct-messages.sql)
+
+Creates `direct_messages` with RLS (only sender/recipient can read a thread) and
+enables Realtime so new private messages appear live. Without this script, the
+Classmates list and public profiles still work; private chat only persists in
+local demo mode.
 
 ## Answer failsafe archive (strongly recommended)
 

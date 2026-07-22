@@ -492,4 +492,7 @@ export const SEED = {
       body: 'Yes, Jordan — the Character piece surprised me too! My anticipated challenge is keeping my books clean enough for a lender to trust them. Does anyone have a bookkeeping tool they love?',
       createdAt: '2026-07-07T13:20:00' },
   ],
+
+  // ---- Direct messages (classmate 1:1 chat; empty in demo seed) --------------
+  messages: [],
 };
